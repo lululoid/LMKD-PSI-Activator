@@ -3,10 +3,12 @@
 MODDIR=${0%/*}
 [ -z $MODPATH ] && MODPATH=$MODDIR
 NVBASE=/data/adb
+LOG_ENABLED=true
 
-exec 3>&1 1>>"$NVBASE/fmiop.log" 2>&1
-set -x # Prints commands, prefixing them with a character stored in an environmental variable ($PS4)
-date -Is
+[[ "$LOG_ENABLED" = "true" ]] && {
+	exec 3>&1 1>>"$NVBASE/fmiop.log" 2>&1
+	set -x # Prints commands, prefixing them with a character stored in an environmental variable ($PS4)
+}
 
 # shellcheck disable=SC2034
 BIN=/system/bin
@@ -15,9 +17,7 @@ swap_filename=$NVBASE/fmiop_swap
 zram_size=$(awk -v size="$totalmem" \
 	'BEGIN { printf "%.0f\n", size * 0.55 }')
 
-export MODPATH
-export BIN
-export NVBASE
+export MODPATH BIN NVBASE LOG_ENABLED
 
 . $MODDIR/fmiop.sh
 
