@@ -50,7 +50,7 @@ EOF
 count_swap() {
 	local one_gb=$((1024 * 1024))
 	local totalmem_gb=$(((totalmem / 1024 / 1024) + 1))
-	count=0
+	local count=0
 	local swap_in_gb=0
 	swap_size=0
 
@@ -107,7 +107,7 @@ EOF
 		make_swap "$swap_size" $swap_filename &&
 			/system/bin/swapon $swap_filename
 		# Handling bug on some devices
-	elif [ $count -eq 0 ]; then
+	elif [ $swap_size -eq 0 ]; then
 		:
 	elif [ -z "$free_space" ]; then
 		ui_print "> Make sure you have $((swap_size / 1024))MB space available data partition"
@@ -145,4 +145,10 @@ if [ $android_version -lt 10 ]; then
 	ui_print "  Please upgrade your phone to Android 10+"
 else
 	lmkd_apply
+	$MODPATH/fmiop_service.sh
+	kill -0 $(resetprop fmiop.pid) &&
+		cat <<EOF
+
+> fmiop started
+EOF
 fi

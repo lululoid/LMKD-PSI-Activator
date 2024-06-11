@@ -3,7 +3,7 @@
 MODDIR=${0%/*}
 [ -z $MODPATH ] && MODPATH=$MODDIR
 NVBASE=/data/adb
-LOG_ENABLED=false
+LOG_ENABLED=true
 export LOG_ENABLED
 
 [[ "$LOG_ENABLED" = "true" ]] && {
