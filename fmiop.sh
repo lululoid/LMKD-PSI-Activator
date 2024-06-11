@@ -23,10 +23,19 @@ relmkd() {
 
 approps() {
 	prop_file=$1
-	grep -v '^ *#' <$prop_file |
-		while IFS= read -r prop; do
-			resetprop -n -p ${prop//=/ }
-			uprint " " "$prop"
+
+	set -f
+	grep -v '^ *#' "$prop_file" |
+		while IFS='=' read -r prop value; do
+			resetprop -n -p $prop $value
+			cat <<EOF
+
+  $prop 
+EOF
+			{
+				[ "$(getprop $prop)" == ${value//=/ } ] &&
+					ui_print "  $value"
+			} || ui_print "  ! Failed"
 		done
 }
 
@@ -63,7 +72,7 @@ resize_zram() {
 	echo $size >/sys/block/zram0/disksize &&
 		loger "set $zram disksize to $size"
 	mkswap $zram
-	$BIN/swapon "$zram" && loger "$zram turned on"
+	$BIN/swapon "$zram" && loger "$zram turned on" && return 0
 }
 
 lmkd_loger() {
