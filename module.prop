@@ -1,0 +1,6 @@
+id=fmiop
+name=LMKD psi enabler
+version=v1.2-beta
+versionCode=315
+author=lululoid
+description=Enable psi mode in LMKD which is more efficient, faster and more stable than traditional minfree_levels
