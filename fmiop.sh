@@ -6,14 +6,16 @@ LOGFILE=$NVBASE/$TAG.log
 loger() {
 	local log=$1
 	true &&
-		[ -n "$log" ] && echo "  $(date -Is) $log" >>$LOGFILE
+		[ -n "$log" ] && echo "> $log" >>$LOGFILE
 }
 
 rm_prop() {
 	for prop in "$@"; do
-		resetprop -d $prop && {
-			uprint " " " $prop deleted" || return 0
-		}
+		resetprop -d $prop &&
+			cat <<EOF
+
+  $prop deleted
+EOF
 	done
 }
 
@@ -91,8 +93,7 @@ lmkd_loger() {
 
 fmiop() {
 	while true; do
-		rm_prop sys.lmk.minfree_levels && relmkd &&
-			loger "sys.lmk.minfree_levels removed"
+		rm_prop sys.lmk.minfree_levels && relmkd
 		sleep 5
 	done &
 	resetprop fmiop.pid $!

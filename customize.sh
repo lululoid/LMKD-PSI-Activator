@@ -6,13 +6,13 @@ totalmem=$(free | awk '/^Mem:/ {print $2}')
 
 BIN=/system/bin
 
-export BIN
+export BIN MODPATH
 
 unzip -o "$ZIPFILE" -x 'META-INF/*' -d "$MODPATH" >&2
 set_perm_recursive "$MODPATH" 0 0 0755 0644
-set_perm_recursive "$MODPATH/sed" 0 0 0755 0644
-set_perm_recursive "$MODPATH/fmiop.sh" 0 0 0755 0644
-set_perm_recursive "$MODPATH/fmiop_service.sh" 0 0 0755 0644
+set_perm_recursive "$MODPATH/sed" 0 2000 0755 0755
+set_perm_recursive "$MODPATH/fmiop.sh" 0 2000 0755 0755
+set_perm_recursive "$MODPATH/fmiop_service.sh" 0 2000 0755 0755
 
 . $MODPATH/fmiop.sh
 
@@ -25,7 +25,7 @@ EOF
 
 	if [ "$totalmem" -lt 2097152 ]; then
 		cat <<EOF
-    ⚠️ Device is low ram. Applying low am tweaks"
+  ! Device is low ram. Applying low ram tweaks
 EOF
 
 		echo "ro.config.low_ram=true
@@ -37,13 +37,14 @@ ro.lmk.use_psi=true
 ro.lmk.use_minfree_levels=false" >$MODPATH/system.prop
 	fi
 
+	rm_prop sys.lmk.minfree_levels
 	approps $MODPATH/system.prop
 	relmkd
 	cat <<EOF
 
 > LMKD PSI mode enabled
-  Give the better of your RAM, RAM is better being filled 
-  with something useful than left unused
+  Give the better of your RAM, RAM is better being 
+  filled with something useful than left unused
 EOF
 }
 
@@ -91,7 +92,7 @@ make_swap() {
 	mkswap -L meZram-swap "$2" >/dev/null
 }
 
-swap_filename=/data/swap_file
+swap_filename=$NVBASE/fmiop_swap
 free_space=$(df /data -P | sed -n '2p' | sed 's/[^0-9 ]*//g' |
 	sed ':a;N;$!ba;s/\n/ /g' | awk '{print $3}')
 
@@ -145,10 +146,14 @@ if [ $android_version -lt 10 ]; then
 	ui_print "  Please upgrade your phone to Android 10+"
 else
 	lmkd_apply
-	$MODPATH/fmiop_service.sh
-	kill -0 $(resetprop fmiop.pid) &&
-		cat <<EOF
 
-> fmiop started
+	miui_v_code=$(resetprop ro.miui.ui.version.code)
+	[ -n "$miui_v_code" ] && {
+		$MODPATH/fmiop_service.sh
+		kill -0 $(resetprop fmiop.pid) &&
+			cat <<EOF
+
+> LMKD psi service keeper started
 EOF
+	}
 fi

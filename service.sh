@@ -3,14 +3,10 @@
 MODDIR=${0%/*}
 [ -z $MODPATH ] && MODPATH=$MODDIR
 NVBASE=/data/adb
-LOG_ENABLED=true
-export LOG_ENABLED
 
-[[ "$LOG_ENABLED" = "true" ]] && {
-	exec 3>&1 1>>"$NVBASE/fmiop.log" 2>&1
-	set -x # Prints commands, prefixing them with a character stored in an environmental variable ($PS4)
-	date -Is
-}
+exec 3>&1 1>>"$NVBASE/fmiop.log" 2>&1
+set -x # Prints commands, prefixing them with a character stored in an environmental variable ($PS4)
+date -Is
 
 # shellcheck disable=SC2034
 BIN=/system/bin
@@ -33,7 +29,12 @@ until [ $(resetprop sys.boot_completed) -eq 1 ]; do
 done
 
 # lmkd_loger
-$MODPATH/fmiop_service.sh
-kill -0 $(resetprop fmiop.pid) &&
-	loger "fmiop started"
-sed -i 's/LOG_ENABLED=true/LOG_ENABLED=false/'
+rm_prop sys.lmk.minfree_levels
+relmkd
+
+miui_v_code=$(resetprop ro.miui.ui.version.code)
+[ -n "$miui_v_code" ] && {
+	$MODPATH/fmiop_service.sh
+	kill -0 $(resetprop fmiop.pid) &&
+		loger "fmiop started"
+}
