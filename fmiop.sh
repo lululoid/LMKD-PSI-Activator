@@ -11,8 +11,7 @@ loger() {
 
 rm_prop() {
 	for prop in "$@"; do
-		resetprop -d $prop &&
-			cat <<EOF
+		resetprop -d $prop && cat <<EOF
 
   $prop deleted
 EOF

@@ -32,7 +32,7 @@ EOF
 ro.lmk.use_psi=true
 ro.lmk.use_minfree_levels=false" >$MODPATH/system.prop
 	else
-		echo "ro.config.low_ram=true
+		echo "ro.config.low_ram=false
 ro.lmk.use_psi=true
 ro.lmk.use_minfree_levels=false" >$MODPATH/system.prop
 	fi
@@ -148,12 +148,15 @@ else
 	lmkd_apply
 
 	miui_v_code=$(resetprop ro.miui.ui.version.code)
-	[ -n "$miui_v_code" ] && {
+	if [ -n "$miui_v_code" ]; then
 		$MODPATH/fmiop_service.sh
 		kill -0 $(resetprop fmiop.pid) &&
 			cat <<EOF
 
 > LMKD psi service keeper started
 EOF
-	}
+	else
+		rm_prop sys.lmk.minfree_levels
+		relmkd
+	fi
 fi

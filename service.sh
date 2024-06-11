@@ -29,12 +29,13 @@ until [ $(resetprop sys.boot_completed) -eq 1 ]; do
 done
 
 # lmkd_loger
-rm_prop sys.lmk.minfree_levels
-relmkd
 
 miui_v_code=$(resetprop ro.miui.ui.version.code)
-[ -n "$miui_v_code" ] && {
+if [ -n "$miui_v_code" ]; then
 	$MODPATH/fmiop_service.sh
 	kill -0 $(resetprop fmiop.pid) &&
 		loger "fmiop started"
-}
+else
+	rm_prop sys.lmk.minfree_levels
+	relmkd
+fi
