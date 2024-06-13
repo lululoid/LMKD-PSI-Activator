@@ -20,7 +20,7 @@ lmkd_apply() {
 	# determine if device is lowram?
 	cat <<EOF
 
-> Totalmem = $totalmem 
+> Totalmem = $(free -h | awk '/^Mem:/ {print $2}')
 EOF
 
 	if [ "$totalmem" -lt 2097152 ]; then
@@ -42,7 +42,7 @@ ro.lmk.use_minfree_levels=false" >$MODPATH/system.prop
 	relmkd
 	cat <<EOF
 
-> LMKD PSI mode enabled
+> LMKD PSI mode activated
   Give the better of your RAM, RAM is better being 
   filled with something useful than left unused
 EOF
