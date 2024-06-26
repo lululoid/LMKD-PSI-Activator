@@ -7,7 +7,7 @@ totalmem=$(free | awk '/^Mem:/ {print $2}')
 LOG_ENABLED=true
 BIN=/system/bin
 
-export BIN MODPATH
+export MODPATH BIN NVBASE LOG_ENABLED
 
 unzip -o "$ZIPFILE" -x 'META-INF/*' -d "$MODPATH" >&2
 set_perm_recursive "$MODPATH" 0 0 0755 0644

@@ -124,7 +124,7 @@ save_lmkd_props() {
 fmiop() {
 	local save=/data/local/tmp/lmkd_props
 
-	exec 3>/dev/null 1>>"$NVBASE/fmiop.log" 2>&1
+	exec 3>/dev/null 1>>/dev/null 2>&1
 	set +x
 
 	while true; do
