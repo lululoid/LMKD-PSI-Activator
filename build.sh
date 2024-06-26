@@ -25,11 +25,6 @@ fi
 if [ -z "$versionCode" ]; then
 	versionCode=$(grep versionCode module.prop | cut -d '=' -f2)
 	versionCode=$((versionCode + 1))
-	if [ "$(echo "$version > $last_version" | bc -l)" -eq 1 ]; then
-		first_two=$(echo "$versionCode" | sed -E 's/^([0-9]*).*/\1/')
-		first_two=$((first_two + 1))
-		versionCode=$(echo "$versionCode" | sed -E "s/^[0-9]*/$first_two/")
-	fi
 fi
 
 # Update module.prop with the new version and versionCode

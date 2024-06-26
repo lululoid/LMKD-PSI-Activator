@@ -8,6 +8,5 @@
 
 . $MODPATH/fmiop.sh
 
-# clear_trash_svc
 kill $(resetprop fmiop.pid)
 fmiop

@@ -1,9 +1,10 @@
 # shellcheck disable=SC3043,SC2034,SC2086,SC3060,SC3010
 SKIPUNZIP=1
-# exec 3>&1 2>&1
-# set -x
+exec 3>&1 2>&1
+set -x
 totalmem=$(free | awk '/^Mem:/ {print $2}')
 
+LOG_ENABLED=true
 BIN=/system/bin
 
 export BIN MODPATH
@@ -30,10 +31,12 @@ EOF
 
 		echo "ro.config.low_ram=true
 ro.lmk.use_psi=true
+ro.lmk.debug=true
 ro.lmk.use_minfree_levels=false" >$MODPATH/system.prop
 	else
 		echo "ro.config.low_ram=false
 ro.lmk.use_psi=true
+ro.lmk.debug=true
 ro.lmk.use_minfree_levels=false" >$MODPATH/system.prop
 	fi
 
@@ -62,6 +65,9 @@ count_swap() {
   DEFAULT is 0 SWAP
 EOF
 
+	set +x
+	exec 3>/dev/null 2>&1
+
 	while true; do
 		# shellcheck disable=SC2069
 		timeout 0.5 /system/bin/getevent -lqc 1 2>&1 >"$TMPDIR"/events &
@@ -85,6 +91,9 @@ EOF
 			break
 		fi
 	done
+
+	set -x
+	exec 3>&1 2>&1
 }
 
 make_swap() {
@@ -93,8 +102,7 @@ make_swap() {
 }
 
 swap_filename=$NVBASE/fmiop_swap
-free_space=$(df /data -P | sed -n '2p' | sed 's/[^0-9 ]*//g' |
-	sed ':a;N;$!ba;s/\n/ /g' | awk '{print $3}')
+free_space=$(df /data -P | sed -n '2p' | sed 's/[^0-9 ]*//g' | sed ':a;N;$!ba;s/\n/ /g' | awk '{print $3}')
 
 # setup SWAP
 if [ ! -f $swap_filename ]; then
@@ -137,13 +145,18 @@ EOF
 			fi
 		done
 	else
-		ui_print "> Storage full. Please free up your storage"
+		ui_print "
+> Storage full. Please free up your storage"
 	fi
 fi
 
 if [ $android_version -lt 10 ]; then
-	ui_print "> Your android version is not supported. Performance tweaks won't be applied."
-	ui_print "  Please upgrade your phone to Android 10+"
+	cat <<EOF
+
+> Your android version is not supported. Performance
+tweaks won't be applied. Please upgrade your phone 
+to Android 10+
+EOF
 else
 	lmkd_apply
 

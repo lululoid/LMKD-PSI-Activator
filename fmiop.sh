@@ -3,6 +3,8 @@
 TAG=fmiop
 LOGFILE=$NVBASE/$TAG.log
 
+export TAG LOGFILE
+
 loger() {
 	local log=$1
 	true &&
@@ -55,8 +57,8 @@ set_mem_limit() {
 			'BEGIN { printf "%.0f\n", size * 0.65 }')
 
 	echo $mem_limit >/sys/block/zram0/mem_limit
-	uprint_n ">" "set_mem_limit to $mem_limit" ||
-		loger "set_mem_limit to $mem_limit"
+	uprint "
+> set_mem_limit to $mem_limit" || loger "set_mem_limit to $mem_limit"
 }
 
 resize_zram() {
@@ -90,9 +92,53 @@ lmkd_loger() {
 	resetprop lmkd_loger.pid $!
 }
 
+save_lmkd_props() {
+	local save=$1
+
+	set --
+	set \
+		ro.lmk.thrashing_limit_decay \
+		ro.lmk.swap_free_low_percentage \
+		ro.lmk.low \
+		ro.lmk.medium \
+		ro.lmk.critical \
+		ro.lmk.critical_upgrade \
+		ro.lmk.upgrade_pressure \
+		ro.lmk.downgrade_pressure \
+		ro.lmk.psi_partial_stall_ms \
+		ro.lmk.psi_complete_stall_ms \
+		ro.lmk.kill_heaviest_task \
+		ro.lmk.swap_util_max \
+		persist.device_config.lmkd_native.thrashing_limit_critical
+
+	rm $save
+
+	for prop in "$@"; do
+		prop_val=$(resetprop $prop)
+
+		[ -n $prop_val ] &&
+			echo "$prop=$prop_val" >>$save
+	done
+}
+
 fmiop() {
+	local save=/data/local/tmp/lmkd_props
+
+	exec 3>/dev/null 1>>"$NVBASE/fmiop.log" 2>&1
+	set +x
+
 	while true; do
-		rm_prop sys.lmk.minfree_levels && relmkd
+		rm_prop sys.lmk.minfree_levels && {
+			exec 3>&1 1>>"$NVBASE/fmiop.log" 2>&1
+			set -x
+
+			save_lmkd_props $save
+			rm_prop $(echo $(sed 's/\(.*\)=.*/\1/' $save))
+			relmkd
+			sleep 5m
+			approps $save
+			relmkd
+		}
 		sleep 5
 	done &
 	resetprop fmiop.pid $!
