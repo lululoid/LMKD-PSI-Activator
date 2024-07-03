@@ -124,20 +124,23 @@ save_lmkd_props() {
 fmiop() {
 	local save=/data/local/tmp/lmkd_props
 
-	exec 3>/dev/null 1>>/dev/null 2>&1
+	exec 3>/dev/null
 	set +x
 
 	while true; do
 		rm_prop sys.lmk.minfree_levels && {
-			exec 3>&1 1>>"$NVBASE/fmiop.log" 2>&1
+			exec 3>&1
 			set -x
 
 			save_lmkd_props $save
 			rm_prop $(echo $(sed 's/\(.*\)=.*/\1/' $save))
 			relmkd
-			sleep 5m
+			sleep 1m
 			approps $save
 			relmkd
+
+			exec 3>/dev/null
+			set +x
 		}
 		sleep 5
 	done &
