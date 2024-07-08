@@ -101,7 +101,7 @@ EOF
 
 make_swap() {
   dd if=/dev/zero of="$2" bs=1024 count="$1" >/dev/null
-  mkswap -L meZram-swap "$2" >/dev/null
+  mkswap -L fmiop_swap "$2" >/dev/null
 }
 
 swap_filename=$NVBASE/fmiop_swap
