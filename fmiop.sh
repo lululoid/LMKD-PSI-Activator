@@ -74,8 +74,11 @@ resize_zram() {
 		loger "use_dedup activated"
 	echo $size >/sys/block/zram0/disksize &&
 		loger "set $zram disksize to $size"
-	mkswap $zram
-	$BIN/swapon "$zram" && loger "$zram turned on" && return 0
+
+	# keep trying until it's succeded
+	until mkswap $zram; do
+		swapoff $zram0
+	done
 }
 
 lmkd_loger() {
@@ -124,23 +127,22 @@ save_lmkd_props() {
 fmiop() {
 	local save=/data/local/tmp/lmkd_props
 
-	exec 3>/dev/null
 	set +x
+	exec 3>&-
 
 	while true; do
 		rm_prop sys.lmk.minfree_levels && {
 			exec 3>&1
 			set -x
 
-			save_lmkd_props $save
-			rm_prop $(echo $(sed 's/\(.*\)=.*/\1/' $save))
-			relmkd
-			sleep 1m
-			approps $save
+			cat <<EOF
+
+> sys.lmk.minfree_levels deleted because of idk, reason
+EOF
 			relmkd
 
-			exec 3>/dev/null
 			set +x
+			exec 3>&-
 		}
 		sleep 5
 	done &
