@@ -13,7 +13,7 @@ BIN=/system/bin
 totalmem=$($BIN/free | awk '/^Mem:/ {print $2}')
 swap_filename=$NVBASE/fmiop_swap
 zram_size=$(awk -v size="$totalmem" \
-	'BEGIN { printf "%.0f\n", size * 0.55 }')
+	'BEGIN { printf "%.0f\n", size * 0.65 }')
 zram=/dev/block/zram0
 
 export MODPATH BIN NVBASE LOG_ENABLED
