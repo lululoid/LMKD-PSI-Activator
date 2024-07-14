@@ -22,7 +22,7 @@ export MODPATH BIN NVBASE LOG_ENABLED
 . $MODDIR/fmiop.sh
 
 $BIN/swapon $swap_filename && loger "$swap_filename turned on"
-resize_zram $totalmem
+resize_zram $((totalmem / 2))
 
 until [ $(resetprop sys.boot_completed) -eq 1 ]; do
 	sleep 5
