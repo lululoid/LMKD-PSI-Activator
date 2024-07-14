@@ -53,7 +53,7 @@ EOF
 
 count_swap() {
 	local one_gb=$((1024 * 1024))
-	local totalmem_gb=$(((totalmem / 1024 / 1024) + 1))
+	local totalmem_half_gb=$(((totalmem / 2 / 1024 / 1024) + 1))
 	local count=0
 	local swap_in_gb=0
 	swap_size=0
@@ -77,15 +77,15 @@ EOF
 				swap_size=0
 				swap_in_gb=0
 				ui_print "  $count. 0 SWAP --> RECOMMENDED"
-			elif [ $swap_in_gb -lt $totalmem_gb ]; then
+			elif [ $swap_in_gb -lt $totalmem_half_gb ]; then
 				swap_in_gb=$((swap_in_gb + 1))
 				ui_print "  $count. ${swap_in_gb}GB of SWAP"
 				swap_size=$((swap_in_gb * one_gb))
 			fi
 
 			count=$((count + 1))
-		elif [ $swap_in_gb -eq $totalmem_gb ] && [ $count != 0 ]; then
-			swap_size=$totalmem
+		elif [ $swap_in_gb -eq $totalmem_half_gb ] && [ $count != 0 ]; then
+			swap_size=$((totalmem / 2))
 			count=0
 		elif (grep -q 'KEY_VOLUMEUP *DOWN' "$TMPDIR"/events); then
 			break
@@ -95,7 +95,6 @@ EOF
 	set -x
 	exec 3>&1 2>&1
 }
-
 make_swap() {
 	dd if=/dev/zero of="$2" bs=1024 count="$1" >/dev/null
 	mkswap -L meZram-swap "$2" >/dev/null
