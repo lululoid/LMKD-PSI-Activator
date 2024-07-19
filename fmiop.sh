@@ -8,7 +8,7 @@ export TAG LOGFILE
 loger() {
 	local log=$1
 	true &&
-		[ -n "$log" ] && echo "> $log" >>$LOGFILE
+		[ -n "$log" ] && echo "⟩ $log" >>$LOGFILE
 }
 
 rm_prop() {
@@ -32,13 +32,15 @@ approps() {
 		while IFS='=' read -r prop value; do
 			resetprop -n -p $prop $value
 			cat <<EOF
-
-  $prop 
+  › $prop 
 EOF
 			{
+				# shellcheck disable=SC3014
 				[ "$(getprop $prop)" == ${value//=/ } ] &&
-					ui_print "  $value"
-			} || ui_print "  ! Failed"
+					uprint "  » $value
+"
+			} || uprint "  ! Failed
+"
 		done
 }
 
@@ -58,7 +60,7 @@ set_mem_limit() {
 
 	echo $mem_limit >/sys/block/zram0/mem_limit
 	uprint "
-> set_mem_limit to $mem_limit" || loger "set_mem_limit to $mem_limit"
+⟩ set_mem_limit to $mem_limit" || loger "set_mem_limit to $mem_limit"
 }
 
 resize_zram() {
@@ -119,7 +121,7 @@ save_lmkd_props() {
 	for prop in "$@"; do
 		prop_val=$(resetprop $prop)
 
-		[ -n $prop_val ] &&
+		[ -n "$prop_val" ] &&
 			echo "$prop=$prop_val" >>$save
 	done
 }
@@ -135,10 +137,12 @@ fmiop() {
 			exec 3>&1
 			set -x
 
-			cat <<EOF
-
-> sys.lmk.minfree_levels deleted because of idk, reason
-EOF
+			{
+				[ -n "$(resetprop fmiop.pid)" ] &&
+					uprint "
+⟩ sys.lmk.minfree_levels deleted because of your system"
+			} || uprint "
+⟩ sys.lmk.minfree_levels deleted"
 			relmkd
 
 			set +x

@@ -20,43 +20,45 @@ set_perm_recursive "$MODPATH/sed" 0 2000 0755 0755
 set_perm_recursive "$MODPATH/fmiop.sh" 0 2000 0755 0755
 set_perm_recursive "$MODPATH/fmiop_service.sh" 0 2000 0755 0755
 
+alias uprint="ui_print"
+
 . $MODPATH/fmiop.sh
 
 echo "
-> $(date -Is)" >>$LOGFILE
+⟩ $(date -Is)" >>$LOGFILE
 
 lmkd_apply() {
 	# determine if device is lowram?
 	cat <<EOF
-
-> Totalmem = $(free -h | awk '/^Mem:/ {print $2}')
+⟩ Totalmem = $(free -h | awk '/^Mem:/ {print $2}')
 EOF
 
 	if [ "$totalmem" -lt 2097152 ]; then
-		cat <<EOF
-  ! Device is low ram. Applying low ram tweaks
-EOF
+		uprint "
+	! Device is low ram. Applying low ram tweaks"
 
-		echo "ro.config.low_ram=true
+		cat <<EOF >>$MODPATH/system.prop
+ro.config.low_ram=true
 ro.lmk.use_psi=true
 ro.lmk.debug=true
-ro.lmk.use_minfree_levels=false" >$MODPATH/system.prop
+ro.lmk.use_minfree_levels=false
+EOF
 	else
-		echo "ro.config.low_ram=false
+		cat <<EOF >>$MODPATH/system.prop
+ro.config.low_ram=false
 ro.lmk.use_psi=true
 ro.lmk.debug=true
-ro.lmk.use_minfree_levels=false" >$MODPATH/system.prop
+ro.lmk.use_minfree_levels=false
+EOF
 	fi
 
 	rm_prop sys.lmk.minfree_levels
 	approps $MODPATH/system.prop
 	relmkd
-	cat <<EOF
-
-> LMKD PSI mode activated
+	uprint "
+⟩ LMKD PSI mode activated
   Give the better of your RAM, RAM is better being 
-  filled with something useful than left unused
-EOF
+  filled with something useful than left unused"
 }
 
 count_swap() {
@@ -66,12 +68,11 @@ count_swap() {
 	local swap_in_gb=0
 	swap_size=0
 
-	cat <<EOF
-> Please select SWAP size 
+	uprint "
+⟩ Please select SWAP size 
   Press VOLUME + to DEFAULT
   Press VOLUME - to SELECT 
-  DEFAULT is 0 SWAP
-EOF
+  DEFAULT is 0 SWAP"
 
 	set +x
 	exec 3>&-
@@ -84,7 +85,7 @@ EOF
 			if [ $count -eq 0 ]; then
 				swap_size=0
 				swap_in_gb=0
-				ui_print "  $count. 0 SWAP --> RECOMMENDED"
+				ui_print "  $count. 0 SWAP --⟩ RECOMMENDED"
 			elif [ $swap_in_gb -lt $totalmem_gb ]; then
 				swap_in_gb=$((swap_in_gb + 1))
 				ui_print "  $count. ${swap_in_gb}GB of SWAP"
@@ -100,8 +101,8 @@ EOF
 		fi
 	done
 
-	# set -x
-	# exec 3>&1
+	set -x
+	exec 3>&1
 }
 
 make_swap() {
@@ -110,74 +111,73 @@ make_swap() {
 }
 
 swap_filename=$NVBASE/fmiop_swap
-free_space=$(df /data -P | sed -n '2p' | sed 's/[^0-9 ]*//g' | sed ':a;N;$!ba;s/\n/ /g' | awk '{print $3}')
+free_space=$(df /data | sed -n '2p' | sed 's/[^0-9 ]*//g' | sed ':a;N;$!ba;s/\n/ /g' | awk '{print $3}')
 
 # setup SWAP
 if [ ! -f $swap_filename ]; then
 	count_swap
 	if [ "$free_space" -ge "$swap_size" ] && [ "$swap_size" != 0 ]; then
-		cat <<EOF
-
-> Starting making SWAP. Please wait a moment
-  $((free_space / 1024))MB available. $((swap_size / 1024))MB needed
-EOF
+		uprint "
+⟩ Starting making SWAP. Please wait a moment
+  $((free_space / 1024))MB available. $((swap_size / 1024))MB needed"
 		make_swap "$swap_size" $swap_filename &&
 			/system/bin/swapon $swap_filename
-		# Handling bug on some devices
 	elif [ $swap_size -eq 0 ]; then
 		:
 	elif [ -z "$free_space" ]; then
-		ui_print "> Make sure you have $((swap_size / 1024))MB space available data partition"
-		ui_print "  Make SWAP?"
-		ui_print "  Press VOLUME + to NO"
-		ui_print "  Press VOLUME - to YES"
+		# handling bug on some devices
+		ui_print "
+⟩ Make sure you have $((swap_size / 1024))MB space available data partition
+	Make SWAP?
+  Press VOLUME + --⟩ NO
+  Press VOLUME - --⟩ YES"
 
 		while true; do
 			# shellcheck disable=SC2069
 			timeout 0.5 /system/bin/getevent -lqc 1 2>&1 >"$TMPDIR"/events &
 			sleep 0.5
 			if (grep -q 'KEY_VOLUMEDOWN *DOWN' "$TMPDIR"/events); then
-				ui_print "> Starting making SWAP. Please wait a moment"
+				ui_print "⟩ Starting making SWAP. Please wait a moment"
 				sleep 0.5
 				make_swap $swap_size $swap_filename &&
 					/system/bin/swapon -p 5 "$swap_filename" >/dev/null
-				ui_print "> SWAP is running"
+				ui_print "⟩ SWAP is running"
 				break
 			elif (grep -q 'KEY_VOLUMEUP *DOWN' "$TMPDIR"/events); then
-				cancelled=$(ui_print "> Not making SWAP")
-				$cancelled && cat <<EOF
-
-> $cancelled"
-EOF
+				ui_print "⟩ Not making SWAP"
 				break
 			fi
 		done
 	else
 		ui_print "
-> Storage full. Please free up your storage"
+⟩ Storage full. Please free up your storage"
 	fi
 fi
 
+android_version=$(getprop ro.build.version.release)
 if [ $android_version -lt 10 ]; then
-	cat <<EOF
-
-> Your android version is not supported. Performance
+	uprint "
+⟩ Your android version is not supported. Performance
 tweaks won't be applied. Please upgrade your phone 
-to Android 10+
-EOF
+to Android 10+"
 else
-	lmkd_apply
-
 	miui_v_code=$(resetprop ro.miui.ui.version.code)
-	if [ -n "$miui_v_code" ]; then
-		$MODPATH/fmiop_service.sh
-		kill -0 $(resetprop fmiop.pid) &&
-			cat <<EOF
 
-> LMKD psi service keeper started
+	if [ -n "$miui_v_code" ]; then
+		# Add workaround for miui touch issue when lmkd is in psi mode
+		# because despite it's beauty miui is have weird of issues
+		cat <<EOF >>$MODPATH/system.prop
+ro.lmk.downgrade_pressure=55
+ro.lmk.upgrade_pressure=50
 EOF
+		lmkd_apply
+		# Add workaround to keep miui from readd sys.lmk.minfree_levels
+		# prop back
+		$MODPATH/fmiop_service.sh
+		kill -0 "$(resetprop fmiop.pid)" &&
+			uprint "
+⟩ LMKD psi service keeper started"
 	else
-		rm_prop sys.lmk.minfree_levels
-		relmkd
+		lmkd_apply
 	fi
 fi

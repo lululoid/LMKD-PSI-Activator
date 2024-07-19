@@ -8,7 +8,6 @@ LOG_ENABLED=true
 exec 3>&1 1>>"$NVBASE/fmiop.log" 2>&1
 set -x # Prints commands, prefixing them with a character stored in an environmental variable ($PS4)
 
-# shellcheck disable=SC2034
 BIN=/system/bin
 totalmem=$($BIN/free | awk '/^Mem:/ {print $2}')
 swap_filename=$NVBASE/fmiop_swap
@@ -21,7 +20,10 @@ export MODPATH BIN NVBASE LOG_ENABLED
 . $MODDIR/fmiop.sh
 
 {
-	[ -f $swap_filename ] && resize_zram $zram_size
+	[ -f $swap_filename ] &&
+		until resize_zram $zram_size; do
+			sleep 1
+		done
 } || resize_zram $totalmem
 $BIN/swapon -p 32767 $zram && loger "$zram turned on"
 $BIN/swapon -p 16384 $swap_filename && loger "$swap_filename turned on"
