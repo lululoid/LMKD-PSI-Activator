@@ -1,35 +1,36 @@
 # shellcheck disable=SC3043,SC2034,SC2086,SC3060,SC3010
-SKIPUNZIP=1
-
 # save full loging
 exec 3>&1 1>>$NVBASE/fmiop.log 2>&1
 # restore stdout for magisk
 exec 1>&3
 set -x
+echo "
+⟩ $(date -Is)" >>$NVBASE/fmiop.log
 
-totalmem=$(free | awk '/^Mem:/ {print $2}')
-
-LOG_ENABLED=true
+SKIPUNZIP=1
 BIN=/system/bin
 
 export MODPATH BIN NVBASE LOG_ENABLED
 
-unzip -o "$ZIPFILE" -x 'META-INF/*' -d "$MODPATH" >&2
-set_perm_recursive "$MODPATH" 0 0 0755 0644
-set_perm_recursive "$MODPATH/sed" 0 2000 0755 0755
-set_perm_recursive "$MODPATH/fmiop.sh" 0 2000 0755 0755
-set_perm_recursive "$MODPATH/fmiop_service.sh" 0 2000 0755 0755
+totalmem=$(free | awk '/^Mem:/ {print $2}')
 
+unzip -o "$ZIPFILE" -x 'META-INF/*' -d "$MODPATH" >&2
 alias uprint="ui_print"
+alias swapon="$BIN/swapon"
 
 . $MODPATH/fmiop.sh
 
-echo "
-⟩ $(date -Is)" >>$LOGFILE
+set_permissions() {
+	set_perm_recursive "$MODPATH" 0 0 0755 0644
+	set_perm_recursive "$MODPATH/sed" 0 2000 0755 0755
+	set_perm_recursive "$MODPATH/fmiop.sh" 0 2000 0755 0755
+	set_perm_recursive "$MODPATH/fmiop_service.sh" 0 2000 0755 0755
+}
 
 lmkd_apply() {
 	# determine if device is lowram?
 	cat <<EOF
+
 ⟩ Totalmem = $(free -h | awk '/^Mem:/ {print $2}')
 EOF
 
@@ -55,8 +56,7 @@ EOF
 	rm_prop sys.lmk.minfree_levels
 	approps $MODPATH/system.prop
 	relmkd
-	uprint "
-⟩ LMKD PSI mode activated
+	uprint "⟩ LMKD PSI mode activated
   Give the better of your RAM, RAM is better being 
   filled with something useful than left unused"
 }
@@ -110,74 +110,59 @@ make_swap() {
 	mkswap -L fmiop_swap "$2" >/dev/null
 }
 
-swap_filename=$NVBASE/fmiop_swap
-free_space=$(df /data | sed -n '2p' | sed 's/[^0-9 ]*//g' | sed ':a;N;$!ba;s/\n/ /g' | awk '{print $4}')
-
 # setup SWAP
-if [ ! -f $swap_filename ]; then
-	count_swap
-	if [ "$free_space" -ge "$swap_size" ] && [ "$swap_size" != 0 ]; then
-		uprint "
+setup_swap() {
+	local swap_filename free_space
+	swap_filename=$NVBASE/fmiop_swap
+	free_space=$(df /data | sed -n '2p' | sed 's/[^0-9 ]*//g' | sed ':a;N;$!ba;s/\n/ /g' | awk '{print $4}')
+
+	if [ ! -f $swap_filename ]; then
+		count_swap
+		if [ "$free_space" -ge "$swap_size" ] && [ "$swap_size" != 0 ]; then
+			uprint "
 ⟩ Starting making SWAP. Please wait a moment
   $((free_space / 1024))MB available. $((swap_size / 1024))MB needed"
-		make_swap "$swap_size" $swap_filename &&
-			/system/bin/swapon $swap_filename
-	elif [ $swap_size -eq 0 ]; then
-		:
-	elif [ -z "$free_space" ]; then
-		# handling bug on some devices
-		ui_print "
-⟩ Make sure you have $((swap_size / 1024))MB space available data partition
-	Make SWAP?
-  Press VOLUME + --⟩ NO
-  Press VOLUME - --⟩ YES"
-
-		while true; do
-			# shellcheck disable=SC2069
-			timeout 0.5 /system/bin/getevent -lqc 1 2>&1 >"$TMPDIR"/events &
-			sleep 0.5
-			if (grep -q 'KEY_VOLUMEDOWN *DOWN' "$TMPDIR"/events); then
-				ui_print "⟩ Starting making SWAP. Please wait a moment"
-				sleep 0.5
-				make_swap $swap_size $swap_filename &&
-					/system/bin/swapon -p 5 "$swap_filename" >/dev/null
-				ui_print "⟩ SWAP is running"
-				break
-			elif (grep -q 'KEY_VOLUMEUP *DOWN' "$TMPDIR"/events); then
-				ui_print "⟩ Not making SWAP"
-				break
-			fi
-		done
-	else
-		ui_print "
+			make_swap "$swap_size" $swap_filename &&
+				swapon $swap_filename
+		elif [ $swap_size -eq 0 ]; then
+			:
+		else
+			ui_print "
 ⟩ Storage full. Please free up your storage"
+		fi
 	fi
-fi
+}
 
-android_version=$(getprop ro.build.version.release)
-if [ $android_version -lt 10 ]; then
-	uprint "
+main() {
+	android_version=$(getprop ro.build.version.release)
+	if [ $android_version -lt 10 ]; then
+		uprint "
 ⟩ Your android version is not supported. Performance
 tweaks won't be applied. Please upgrade your phone 
 to Android 10+"
-else
-	miui_v_code=$(resetprop ro.miui.ui.version.code)
+	else
+		miui_v_code=$(resetprop ro.miui.ui.version.code)
 
-	if [ -n "$miui_v_code" ]; then
-		# Add workaround for miui touch issue when lmkd is in psi mode
-		# because despite it's beauty miui is have weird of issues
-		cat <<EOF >>$MODPATH/system.prop
+		if [ -n "$miui_v_code" ]; then
+			# Add workaround for miui touch issue when lmkd is in psi mode
+			# because despite it's beauty miui is have weird of issues
+			cat <<EOF >>$MODPATH/system.prop
 ro.lmk.downgrade_pressure=55
 ro.lmk.upgrade_pressure=50
 EOF
-		lmkd_apply
-		# Add workaround to keep miui from readd sys.lmk.minfree_levels
-		# prop back
-		$MODPATH/fmiop_service.sh
-		kill -0 "$(resetprop fmiop.pid)" &&
-			uprint "
+			lmkd_apply
+			# Add workaround to keep miui from readd sys.lmk.minfree_levels
+			# prop back
+			$MODPATH/fmiop_service.sh
+			kill -0 "$(resetprop fmiop.pid)" &&
+				uprint "
 ⟩ LMKD psi service keeper started"
-	else
-		lmkd_apply
+		else
+			lmkd_apply
+		fi
 	fi
-fi
+}
+
+set_permissions
+setup_swap
+main

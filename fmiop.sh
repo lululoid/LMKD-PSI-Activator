@@ -51,18 +51,6 @@ notif() {
 		"cmd notification post -S bigtext -t 'fmiop' 'Tag' '$body'"
 }
 
-set_mem_limit() {
-	totalmem=$($BIN/free | awk '/^Mem:/ {print $2}')
-	mem_limit=$1
-	[ -z $mem_limit ] &&
-		mem_limit=$(awk -v size="$totalmem" \
-			'BEGIN { printf "%.0f\n", size * 0.65 }')
-
-	echo $mem_limit >/sys/block/zram0/mem_limit
-	uprint "
-⟩ set_mem_limit to $mem_limit" || loger "set_mem_limit to $mem_limit"
-}
-
 resize_zram() {
 	local zram=/dev/block/zram0
 	local size=$1
@@ -79,7 +67,7 @@ resize_zram() {
 
 	# keep trying until it's succeded
 	until mkswap $zram; do
-		swapoff $zram0
+		swapoff $zram
 	done
 }
 
@@ -97,43 +85,14 @@ lmkd_loger() {
 	resetprop lmkd_loger.pid $!
 }
 
-save_lmkd_props() {
-	local save=$1
-
-	set --
-	set \
-		ro.lmk.thrashing_limit_decay \
-		ro.lmk.swap_free_low_percentage \
-		ro.lmk.low \
-		ro.lmk.medium \
-		ro.lmk.critical \
-		ro.lmk.critical_upgrade \
-		ro.lmk.upgrade_pressure \
-		ro.lmk.downgrade_pressure \
-		ro.lmk.psi_partial_stall_ms \
-		ro.lmk.psi_complete_stall_ms \
-		ro.lmk.kill_heaviest_task \
-		ro.lmk.swap_util_max \
-		persist.device_config.lmkd_native.thrashing_limit_critical
-
-	rm $save
-
-	for prop in "$@"; do
-		prop_val=$(resetprop $prop)
-
-		[ -n "$prop_val" ] &&
-			echo "$prop=$prop_val" >>$save
-	done
-}
-
 fmiop() {
-	local save=/data/local/tmp/lmkd_props
-
+	# turn off logging to prevent unnecessary loop logging
 	set +x
 	exec 3>&-
 
 	while true; do
 		rm_prop sys.lmk.minfree_levels && {
+			# turn on logging back, can't use function because it doesn't work
 			exec 3>&1
 			set -x
 
