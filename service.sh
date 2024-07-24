@@ -20,7 +20,7 @@ export MODPATH BIN NVBASE LOG_ENABLED
 . $MODDIR/fmiop.sh
 
 {
-	[ -f $swap_filename ] &&
+	grep file -q /proc/swaps &&
 		until resize_zram $zram_size; do
 			sleep 1
 		done
