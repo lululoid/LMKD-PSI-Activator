@@ -111,7 +111,7 @@ make_swap() {
 }
 
 swap_filename=$NVBASE/fmiop_swap
-free_space=$(df /data | sed -n '2p' | sed 's/[^0-9 ]*//g' | sed ':a;N;$!ba;s/\n/ /g' | awk '{print $3}')
+free_space=$(df /data | sed -n '2p' | sed 's/[^0-9 ]*//g' | sed ':a;N;$!ba;s/\n/ /g' | awk '{print $4}')
 
 # setup SWAP
 if [ ! -f $swap_filename ]; then

@@ -15,7 +15,7 @@ rm_prop() {
 	for prop in "$@"; do
 		resetprop -d $prop && cat <<EOF
 
-  $prop deleted
+  X $prop deleted
 EOF
 	done
 }
