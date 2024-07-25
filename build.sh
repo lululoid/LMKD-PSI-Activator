@@ -1,4 +1,14 @@
 #!/bin/bash
+check_root() {
+	local message="$1"
+
+	if su -c "echo"; then
+		false
+	elif [ "$EUID" -ne 0 ]; then
+		echo "$message"
+		exit 1
+	fi
+}
 
 version=$1
 versionCode=$2
@@ -43,4 +53,4 @@ package_name="packages/$module_name-v${version}_$versionCode-beta.zip"
 	service.sh \
 	cleaner.zip
 
-su -c "magisk --install-module $package_name" || echo "  > ROOT needed to install this module"
+check_root "You need ROOT to install this module" || su -c "magisk --install-module $package_name"
