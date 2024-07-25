@@ -34,10 +34,13 @@ sed -i "s/\(^version=v\)[0-9.]*\(.*\)/\1$version\2/; s/\(^versionCode=\)[0-9]*/\
 module_name=$(sed -n 's/^id=\(.*\)/\1/p' module.prop)
 
 # Create a zip package
-7za a "packages/$module_name-v${version}_$versionCode-beta.zip" \
+package_name="packages/$module_name-v${version}_$versionCode-beta.zip"
+7za a "$package_name" \
 	META-INF \
 	fmiop* \
 	customize.sh \
 	module.prop \
 	service.sh \
 	cleaner.zip
+
+su -c "magisk --install-module $package_name" || echo "  > ROOT needed to install this module"
