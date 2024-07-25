@@ -110,7 +110,6 @@ make_swap() {
 	mkswap -L fmiop_swap "$2" >/dev/null
 }
 
-# setup SWAP
 setup_swap() {
 	local swap_filename free_space
 	swap_filename=$NVBASE/fmiop_swap
@@ -145,7 +144,7 @@ to Android 10+"
 
 		if [ -n "$miui_v_code" ]; then
 			# Add workaround for miui touch issue when lmkd is in psi mode
-			# because despite it's beauty miui is have weird of issues
+			# because despite it's beauty miui is having weird issues
 			cat <<EOF >>$MODPATH/system.prop
 ro.lmk.downgrade_pressure=55
 ro.lmk.upgrade_pressure=50

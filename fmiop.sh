@@ -2,8 +2,10 @@
 # shellcheck disable=SC3043,SC3060,SC2086,SC2046
 TAG=fmiop
 LOGFILE=$NVBASE/$TAG.log
+ZRAM=/dev/block/zram0
 
 export TAG LOGFILE
+alias uprint="ui_print || echo"
 
 loger() {
 	local log=$1
@@ -51,23 +53,30 @@ notif() {
 		"cmd notification post -S bigtext -t 'fmiop' 'Tag' '$body'"
 }
 
+turnoff_zram() {
+	until
+		swapoff $ZRAM
+	do
+		sleep 1
+	done
+}
+
 resize_zram() {
-	local zram=/dev/block/zram0
 	local size=$1
 
-	swapoff $zram && loger "$zram turned off"
+	turnoff_zram && loger "$ZRAM turned off"
 	echo 0 >/sys/class/zram-control/hot_remove &&
-		loger "zram0 removed"
+		loger "$ZRAM removed"
 	cat /sys/class/zram-control/hot_add &&
-		loger "zram added"
+		loger "$ZRAM added"
 	echo 1 >/sys/block/zram0/use_dedup &&
-		loger "use_dedup activated"
+		loger "use_dedup to reduce memory usage"
 	echo $size >/sys/block/zram0/disksize &&
-		loger "set $zram disksize to $size"
+		loger "set $ZRAM disksize to $size"
 
 	# keep trying until it's succeded
-	until mkswap $zram; do
-		swapoff $zram
+	until mkswap $ZRAM; do
+		swapoff $ZRAM
 	done
 }
 
@@ -98,9 +107,9 @@ fmiop() {
 
 			{
 				[ -n "$(resetprop fmiop.pid)" ] &&
-					uprint "
+					ui_print "
 ⟩ sys.lmk.minfree_levels deleted because of your system"
-			} || uprint "
+			} || ui_print "
 ⟩ sys.lmk.minfree_levels deleted"
 			relmkd
 
