@@ -3,30 +3,34 @@
 MODDIR=${0%/*}
 [ -z $MODPATH ] && MODPATH=$MODDIR
 NVBASE=/data/adb
-LOG_ENABLED=true
+BIN=/system/bin
 
 exec 3>&1 1>>"$NVBASE/fmiop.log" 2>&1
 set -x # Prints commands, prefixing them with a character stored in an environmental variable ($PS4)
+echo "
+⟩ $(date -Is)" >>$NVBASE/fmiop.log
 
-BIN=/system/bin
 totalmem=$($BIN/free | awk '/^Mem:/ {print $2}')
 swap_filename=$NVBASE/fmiop_swap
 zram_size=$(awk -v size="$totalmem" \
 	'BEGIN { printf "%.0f\n", size * 0.65 }')
-zram=/dev/block/zram0
 
+# export for fmiop_service.sh
 export MODPATH BIN NVBASE LOG_ENABLED
 
 . $MODDIR/fmiop.sh
 
+turnoff_zram
+$BIN/swapon -p 32766 $swap_filename && loger "$swap_filename turned on"
+# if swap exist zram size is $zram_size instead because system keeps killing apps and swap is being unusable
 {
 	grep file -q /proc/swaps &&
 		until resize_zram $zram_size; do
 			sleep 1
 		done
 } || resize_zram $totalmem
-$BIN/swapon -p 32767 $zram && loger "$zram turned on"
-$BIN/swapon -p 16384 $swap_filename && loger "$swap_filename turned on"
+# idk, the values is just for experimenting
+$BIN/swapon -p 32767 $ZRAM
 
 until [ $(resetprop sys.boot_completed) -eq 1 ]; do
 	sleep 5
