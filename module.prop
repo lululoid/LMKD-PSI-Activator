@@ -1,6 +1,6 @@
 id=fmiop
 name=LMKD PSI Activator
 version=v1.5-beta
-versionCode=444
+versionCode=454
 author=lululoid
 description=Fix RAM management by activating psi mode in LMKD which is more efficient, faster and more stable than traditional minfree_levels most ROMs used

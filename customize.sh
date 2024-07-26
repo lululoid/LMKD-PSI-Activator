@@ -145,9 +145,16 @@ to Android 10+"
 		if [ -n "$miui_v_code" ]; then
 			# Add workaround for miui touch issue when lmkd is in psi mode
 			# because despite it's beauty miui is having weird issues
+			cat <<EOF
+⟩ Adding props workaround for MIUI touch issue when
+  using lmkd in psi mode
+  Turn off screen and turn on again if you experiencing
+  touch issue, this is MIUI bug
+EOF
 			cat <<EOF >>$MODPATH/system.prop
-ro.lmk.downgrade_pressure=55
+ro.lmk.swap_util_max=70
 ro.lmk.upgrade_pressure=50
+ro.lmk.downgrade_pressure=55
 EOF
 			lmkd_apply
 			# Add workaround to keep miui from readd sys.lmk.minfree_levels

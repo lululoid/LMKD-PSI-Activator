@@ -5,7 +5,7 @@ LOGFILE=$NVBASE/$TAG.log
 ZRAM=/dev/block/zram0
 
 export TAG LOGFILE
-alias uprint="ui_print || echo"
+alias uprint="ui_print"
 
 loger() {
 	local log=$1
@@ -107,9 +107,9 @@ fmiop() {
 
 			{
 				[ -n "$(resetprop fmiop.pid)" ] &&
-					ui_print "
+					echo "
 ⟩ sys.lmk.minfree_levels deleted because of your system"
-			} || ui_print "
+			} || echo "
 ⟩ sys.lmk.minfree_levels deleted"
 			relmkd
 
