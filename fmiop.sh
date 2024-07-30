@@ -18,6 +18,7 @@ rm_prop() {
 		resetprop -d $prop && cat <<EOF
 
   X $prop deleted
+
 EOF
 	done
 }
@@ -105,12 +106,13 @@ fmiop() {
 			exec 3>&1
 			set -x
 
-			{
-				[ -n "$(resetprop fmiop.pid)" ] &&
-					echo "
+			if [ -n "$(resetprop fmiop.pid)" ]; then
+				echo "
 ⟩ sys.lmk.minfree_levels deleted because of your system"
-			} || echo "
+			elif [ -z "$(resetprop fmiop.pid)" ]; then
+				echo "
 ⟩ sys.lmk.minfree_levels deleted"
+			fi
 			relmkd
 
 			set +x

@@ -72,7 +72,8 @@ count_swap() {
 ⟩ Please select SWAP size 
   Press VOLUME + to DEFAULT
   Press VOLUME - to SELECT 
-  DEFAULT is 0 SWAP"
+  DEFAULT is 0 SWAP
+	"
 
 	set +x
 	exec 3>&-
@@ -146,15 +147,9 @@ to Android 10+"
 			# Add workaround for miui touch issue when lmkd is in psi mode
 			# because despite it's beauty miui is having weird issues
 			cat <<EOF
-⟩ Adding props workaround for MIUI touch issue when
-  using lmkd in psi mode
-  Turn off screen and turn on again if you experiencing
-  touch issue, this is MIUI bug
-EOF
-			cat <<EOF >>$MODPATH/system.prop
-ro.lmk.swap_util_max=70
-ro.lmk.upgrade_pressure=50
-ro.lmk.downgrade_pressure=55
+⟩ Due to MIUI bug please turn off screen and turn on again if you
+  experiencing touch issue, like can't use navigation gesture or 
+  ghost touch
 EOF
 			lmkd_apply
 			# Add workaround to keep miui from readd sys.lmk.minfree_levels
