@@ -109,6 +109,7 @@ count_swap() {
 make_swap() {
 	dd if=/dev/zero of="$2" bs=1024 count="$1" >/dev/null
 	mkswap -L fmiop_swap "$2" >/dev/null
+	chmod 0600 $2
 }
 
 setup_swap() {
@@ -123,7 +124,7 @@ setup_swap() {
 ⟩ Starting making SWAP. Please wait a moment
   $((free_space / 1024))MB available. $((swap_size / 1024))MB needed"
 			make_swap "$swap_size" $swap_filename &&
-				swapon $swap_filename
+				swapon -p 32766 $swap_filename
 		elif [ $swap_size -eq 0 ]; then
 			:
 		else
@@ -147,9 +148,9 @@ to Android 10+"
 			# Add workaround for miui touch issue when lmkd is in psi mode
 			# because despite it's beauty miui is having weird issues
 			cat <<EOF
-⟩ Due to MIUI bug please turn off screen and turn on again if you
-  experiencing touch issue, like can't use navigation gesture or 
-  ghost touch
+⟩ Due to MIUI bug please turn off screen and turn on again if
+  you experiencing touch issue, like can't use navigation
+  gesture or ghost touch
 EOF
 			lmkd_apply
 			# Add workaround to keep miui from readd sys.lmk.minfree_levels

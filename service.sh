@@ -22,13 +22,9 @@ export MODPATH BIN NVBASE LOG_ENABLED
 
 turnoff_zram
 $BIN/swapon -p 32766 $swap_filename && loger "$swap_filename turned on"
-# if swap exist zram size is $zram_size instead because system keeps killing apps and swap is being unusable
-{
-	grep file -q /proc/swaps &&
-		until resize_zram $zram_size; do
-			sleep 1
-		done
-} || resize_zram $totalmem
+until resize_zram $totalmem; do
+	sleep 1
+done
 # idk, the values is just for experimenting
 $BIN/swapon -p 32767 $ZRAM
 
