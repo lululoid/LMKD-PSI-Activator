@@ -20,19 +20,17 @@ export MODPATH BIN NVBASE LOG_ENABLED
 
 . $MODDIR/fmiop.sh
 
-turnoff_zram
-$BIN/swapon -p 32766 $swap_filename && loger "$swap_filename turned on"
-until resize_zram $totalmem; do
-	sleep 1
-done
+watch_log_file_size $NVBASE/fmiop.log
+resize_zram $totalmem
 # idk, the values is just for experimenting
-$BIN/swapon -p 32767 $ZRAM
+$BIN/swapon -p 32767 $ZRAM_BLOCK
+$BIN/swapon -p 32766 $swap_filename && loger "$swap_filename turned on"
 
 until [ $(resetprop sys.boot_completed) -eq 1 ]; do
 	sleep 5
 done
 
-# lmkd_loger
+lmkd_loger
 
 miui_v_code=$(resetprop ro.miui.ui.version.code)
 if [ -n "$miui_v_code" ]; then
