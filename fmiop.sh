@@ -7,62 +7,6 @@ LOGFILE=$NVBASE/$TAG.log
 export TAG LOGFILE
 alias uprint="ui_print"
 
-watch_log_file_size() {
-	local file_size
-	local log_file=$1
-	local max_size=$((10 * 1024 * 1024)) # 10MB in bytes
-	local watch_log_file_size_pids
-	watch_log_file_size_pids=$(getprop fmiop.watch_log_file_size.pids)
-
-	if [ ! -f "$log_file" ]; then
-		echo "Log file does not exist: $log_file"
-		return 1
-	fi
-
-	set +x
-	exec 3>&-
-	while true; do
-		# Check if the file size exceeds the max size
-		file_size=$(stat -c%s "$log_file" 2>/dev/null)
-
-		if [ -z $file_size ]; then
-			exec 3>&1
-			set -x
-
-			echo "Error getting file size for $log_file"
-
-			set +x
-			exec 3>&-
-
-			return 1
-		fi
-
-		if [ $file_size -gt $max_size ]; then
-			exec 3>&1
-			set -x
-
-			local new_log_file="${log_file%.log}_2.log"
-
-			mv "$log_file" "$new_log_file"
-			echo "Renamed $log_file to $new_log_file"
-
-			set +x
-			exec 3>&-
-		fi
-		sleep 1
-	done &
-
-	exec 3>&1
-	set -x
-
-	local new_pid=$!
-	if [ -n "$watch_log_file_size_pids" ]; then
-		resetprop fmiop.watch_log_file_size.pids "${watch_log_file_size_pids} ${new_pid}"
-	else
-		resetprop fmiop.watch_log_file_size.pids "$new_pid"
-	fi
-}
-
 loger() {
 	local log=$1
 	true &&
@@ -113,7 +57,7 @@ notif() {
 turnoff_zram() {
 	local zram=$1
 
-	[ -n "$zram" ] && for tick in $(seq 60); do
+	[ -n "$zram" ] && for _ in $(seq 60); do
 		while true; do
 			if swapoff $zram; then
 				loger "$zram turned off"
@@ -165,8 +109,6 @@ lmkd_loger() {
 		}
 		sleep 1
 	done &
-
-	watch_log_file_size $log_file
 }
 
 fmiop() {
