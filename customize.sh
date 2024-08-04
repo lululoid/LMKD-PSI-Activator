@@ -1,16 +1,19 @@
 # shellcheck disable=SC3043,SC2034,SC2086,SC3060,SC3010
 # save full loging
-exec 3>&1 1>>$NVBASE/fmiop.log 2>&1
+LOG_FOLDER=$NVBASE/fmiop
+LOG=$LOG_FOLDER/fmiop.log
+mkdir -p $LOG_FOLDER
+exec 3>&1 1>>$LOG 2>&1
 # restore stdout for magisk
 exec 1>&3
 set -x
 echo "
-⟩ $(date -Is)" >>$NVBASE/fmiop.log
+⟩ $(date -Is)" >>$LOG
 
 SKIPUNZIP=1
 BIN=/system/bin
 
-export MODPATH BIN NVBASE LOG_ENABLED
+export MODPATH BIN NVBASE LOG_ENABLED LOG_FOLDER LOG
 
 totalmem=$(free | awk '/^Mem:/ {print $2}')
 
@@ -25,6 +28,7 @@ set_permissions() {
 	set_perm_recursive "$MODPATH/sed" 0 2000 0755 0755
 	set_perm_recursive "$MODPATH/fmiop.sh" 0 2000 0755 0755
 	set_perm_recursive "$MODPATH/fmiop_service.sh" 0 2000 0755 0755
+	set_perm_recursive "$MODPATH/log_service.sh" 0 2000 0755 0755
 }
 
 lmkd_apply() {
@@ -162,6 +166,7 @@ EOF
 		else
 			lmkd_apply
 		fi
+		$MODPATH/log_service.sh
 	fi
 }
 

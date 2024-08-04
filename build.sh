@@ -47,10 +47,10 @@ module_name=$(sed -n 's/^id=\(.*\)/\1/p' module.prop)
 package_name="packages/$module_name-v${version}_$versionCode-beta.zip"
 7za a "$package_name" \
 	META-INF \
-	fmiop* \
+	fmiop.sh \
 	customize.sh \
 	module.prop \
-	service.sh \
-	cleaner.zip
+	cleaner.zip \
+	./*service.sh
 
-check_root "You need ROOT to install this module" || su -c "magisk --install-module $package_name"
+# check_root "You need ROOT to install this module" || su -c "magisk --install-module $package_name"

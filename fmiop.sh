@@ -9,8 +9,77 @@ alias uprint="ui_print"
 
 loger() {
 	local log=$1
-	true &&
-		[ -n "$log" ] && echo "⟩ $log" >>$LOGFILE
+	[ -n "$log" ] && echo "⟩ $log" >>$LOGFILE
+}
+
+logrotate() {
+	local count=0
+
+	for log in "$@"; do
+		count=$((count + 1))
+
+		if [ "$count" -gt 2 ]; then
+			# shellcheck disable=SC2012
+			oldest_log=$(ls -tr "$1" | head -n 1)
+			rm -rf "$oldest_log"
+		fi
+	done
+}
+
+check_file_size() {
+	stat -c%s $1
+}
+
+lmkd_loger() {
+	local log_file
+	log_file=$NVBASE/lmkd.log
+
+	resetprop ro.lmk.debug true
+	kill -9 $(resetprop fmiop.lmkd_loger.pid)
+	resetprop -d fmiop.lmkd_loger.pid
+	$BIN/logcat -v time --pid=$(pidof lmkd) --file=$log_file &
+	resetprop fmiop.lmkd_loger.pid $!
+}
+
+lmkd_loger_watcher() {
+	local lmkd_log_size today_date lmkd_log_size
+	local log="$NVBASE/lmkd.log"
+
+	exec 3>&-
+	set +x
+	while true; do
+
+		# check for loggers pid, if it's don't exist start one
+		[ -z $(resetprop fmiop.lmkd_loger.pid) ] && {
+			exec 3>&1
+			set -x
+
+			lmkd_loger
+
+			exec 3>&-
+			set +x
+		}
+
+		# limit log size to 10MB then restart the service if it's exceed it
+		lmkd_log_size=$(check_file_size $log)
+		[ $lmkd_log_size -ge 10485760 ] && {
+			exec 3>&1
+			set -x
+
+			today_date=$(date +%R-%a-%d-%m-%Y)
+			new_log_file="${log%.log}_$today_date.log"
+
+			mv "$log" $new_log_file
+			lmkd_loger
+			logrotate $NVBASE/lmkd*.log
+
+			exec 3>&-
+			set +x
+		}
+		sleep 1
+	done &
+
+	resetprop fmiop.lmkd_loger_watcher.pid $!
 }
 
 rm_prop() {
@@ -92,23 +161,6 @@ resize_zram() {
 	until mkswap $ZRAM_BLOCK; do
 		sleep 1
 	done
-}
-
-lmkd_loger() {
-	local log_file
-	log_file=$NVBASE/lmkd.log
-
-	resetprop ro.lmk.debug true
-	kill -9 $(resetprop lmkd_loger.pid)
-	resetprop -d lmkd_loger.pid
-
-	while true; do
-		! kill -0 $(resetprop lmkd_loger.pid) && {
-			$BIN/logcat -v time --pid=$(pidof lmkd) --file=$log_file
-			resetprop lmkd_loger.pid $!
-		}
-		sleep 1
-	done &
 }
 
 fmiop() {

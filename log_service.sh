@@ -3,8 +3,10 @@
 script_name=$(basename $0)
 exec 3>&1 1>>"$LOG_FOLDER/$script_name.log" 2>&1
 set -x # Prints commands, prefixing them with a character stored in an environmental variable ($PS4)
+lmkd_loger_watcher_pid=$(getprop fmiop.lmkd_loger_watcher.pid)
 
 . $MODPATH/fmiop.sh
 
-kill $(resetprop fmiop.pid)
-fmiop
+kill -9 $lmkd_loger_watcher_pid
+resetprop -d fmiop.lmkd_loger_watcher.pid
+lmkd_loger_watcher
