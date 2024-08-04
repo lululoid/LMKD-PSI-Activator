@@ -1,7 +1,10 @@
 #!/system/bin/sh
 # shellcheck disable=SC3043,SC3060,SC2086,SC2046
 TAG=fmiop
-LOGFILE=$NVBASE/$TAG.log
+LOG_FOLDER=$NVBASE/$TAG
+LOGFILE=$LOG_FOLDER/$TAG.log
+PID_DB=$LOG_FOLDER/$TAG.pids
+
 [ -z $ZRAM_BLOCK ] && ZRAM_BLOCK=$(awk '/zram/ {print $1}' /proc/swaps)
 
 export TAG LOGFILE
@@ -27,40 +30,70 @@ logrotate() {
 }
 
 check_file_size() {
-	stat -c%s $1
+	stat -c%s "$1"
+}
+
+save_pid() {
+	local pid_name=$1
+	local pid_value=$2
+
+	if ! resetprop $pid_name $pid_value; then
+		echo "$pid_name=$pid_value" >>$PID_DB
+	fi
+}
+
+read_pid() {
+	local pid_name=$1
+	local pid_value
+
+	pid_value=$(resetprop $pid_name 2>/dev/null)
+	if [ -z "$pid_value" ]; then
+		pid_value=$(awk -F= -v name="$pid_name" '$1 == name {print $2}' $PID_DB)
+	fi
+
+	echo $pid_value
+}
+
+remove_pid() {
+	local pid_name=$1
+
+	if resetprop -d $pid_name; then
+		sed -i "/^$pid_name=/d" $PID_DB
+	fi
 }
 
 lmkd_loger() {
 	local log_file
-	log_file=$NVBASE/lmkd.log
+	log_file=$1
 
 	resetprop ro.lmk.debug true
-	kill -9 $(resetprop fmiop.lmkd_loger.pid)
-	resetprop -d fmiop.lmkd_loger.pid
+	kill -9 $(read_pid fmiop.lmkd_loger.pid)
+	remove_pid "fmiop.lmkd_loger.pid"
 	$BIN/logcat -v time --pid=$(pidof lmkd) --file=$log_file &
-	resetprop fmiop.lmkd_loger.pid $!
+	local new_pid=$!
+	save_pid "fmiop.lmkd_loger.pid" $new_pid
 }
 
 lmkd_loger_watcher() {
 	local lmkd_log_size today_date lmkd_log_size
-	local log="$NVBASE/lmkd.log"
+	local log="$LOG_FOLDER/lmkd.log"
 
 	exec 3>&-
 	set +x
 	while true; do
 
-		# check for loggers pid, if it's don't exist start one
-		[ -z $(resetprop fmiop.lmkd_loger.pid) ] && {
+		# check for loggers pid, if it doesn't exist start one
+		[ -z $(read_pid fmiop.lmkd_loger.pid) ] && {
 			exec 3>&1
 			set -x
 
-			lmkd_loger
+			lmkd_loger $log
 
 			exec 3>&-
 			set +x
 		}
 
-		# limit log size to 10MB then restart the service if it's exceed it
+		# limit log size to 10MB then restart the service if it exceeds it
 		lmkd_log_size=$(check_file_size $log)
 		[ $lmkd_log_size -ge 10485760 ] && {
 			exec 3>&1
@@ -70,8 +103,8 @@ lmkd_loger_watcher() {
 			new_log_file="${log%.log}_$today_date.log"
 
 			mv "$log" $new_log_file
-			lmkd_loger
-			logrotate $NVBASE/lmkd*.log
+			lmkd_loger $log
+			logrotate $LOG_FOLDER/${log*%.log}
 
 			exec 3>&-
 			set +x
@@ -79,7 +112,8 @@ lmkd_loger_watcher() {
 		sleep 1
 	done &
 
-	resetprop fmiop.lmkd_loger_watcher.pid $!
+	local new_pid=$!
+	save_pid "fmiop.lmkd_loger_watcher.pid" $new_pid
 }
 
 rm_prop() {
@@ -146,10 +180,10 @@ add_zram() {
 resize_zram() {
 	local size=$1
 	local zram_id
-	# should be after turning off zram
 
 	turnoff_zram $ZRAM_BLOCK
 	echo 0 >/sys/class/zram-control/hot_remove && loger "$ZRAM_BLOCK removed"
+	# should be after turning off zram
 	zram_id=$(add_zram)
 	[ -e $ZRAM_BLOCK ] && loger "$ZRAM_BLOCK added"
 	echo 1 >/sys/block/zram${zram_id}/use_dedup &&
@@ -157,7 +191,7 @@ resize_zram() {
 	echo $size >/sys/block/zram${zram_id}/disksize &&
 		loger "set ZRAM$zram_id disksize to $size"
 
-	# keep trying until it's succeded
+	# keep trying until it's succeeded
 	until mkswap $ZRAM_BLOCK; do
 		sleep 1
 	done
@@ -181,5 +215,6 @@ fmiop() {
 		}
 		sleep 5
 	done &
-	resetprop fmiop.pid $!
+	local new_pid=$!
+	save_pid "fmiop.pid" $new_pid
 }
