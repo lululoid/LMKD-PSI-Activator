@@ -75,6 +75,8 @@ lmkd_loger() {
 	log_file=$1
 
 	resetprop ro.lmk.debug true
+	kill -9 $(read_pid fmiop.lmkd_loger.pid)
+	remove_pid "fmiop.lmkd_loger.pid"
 	$BIN/logcat -v time --pid=$(pidof lmkd) --file=$log_file &
 	local new_pid=$!
 	save_pid "fmiop.lmkd_loger.pid" $new_pid
@@ -87,7 +89,6 @@ lmkd_loger_watcher() {
 	exec 3>&-
 	set +x
 	while true; do
-
 		# check for loggers pid, if it doesn't exist start one
 		[ -z $(read_pid fmiop.lmkd_loger.pid) ] && {
 			exec 3>&1
@@ -109,8 +110,8 @@ lmkd_loger_watcher() {
 			new_log_file="${log%.log}_$today_date.log"
 
 			mv "$log" $new_log_file
+			logrotate ${log%.log}*.log
 			lmkd_loger $log
-			logrotate $LOG_FOLDER/${log*%.log} 
 
 			exec 3>&-
 			set +x

@@ -6,7 +6,4 @@ set -x # Prints commands, prefixing them with a character stored in an environme
 
 . $MODPATH/fmiop.sh
 
-lmkd_loger_watcher_pid=$(read_pid fmiop.lmkd_loger_watcher.pid)
-kill -9 $lmkd_loger_watcher_pid
-remove_pid fmiop.lmkd_loger_watcher.pid
 lmkd_loger_watcher

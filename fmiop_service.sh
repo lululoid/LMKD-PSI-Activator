@@ -6,5 +6,4 @@ set -x # Prints commands, prefixing them with a character stored in an environme
 
 . $MODPATH/fmiop.sh
 
-kill $(resetprop fmiop.pid)
 fmiop

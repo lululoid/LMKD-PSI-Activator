@@ -140,6 +140,8 @@ setup_swap() {
 
 main() {
 	android_version=$(getprop ro.build.version.release)
+
+	kill_all_pids
 	if [ $android_version -lt 10 ]; then
 		uprint "
 ⟩ Your android version is not supported. Performance
@@ -160,8 +162,7 @@ EOF
 			# Add workaround to keep miui from readd sys.lmk.minfree_levels
 			# prop back
 			$MODPATH/fmiop_service.sh
-			kill -0 "$(resetprop fmiop.pid)" &&
-				uprint "
+			uprint "
 ⟩ LMKD psi service keeper started"
 		else
 			lmkd_apply
