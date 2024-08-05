@@ -37,29 +37,37 @@ save_pid() {
 	local pid_name=$1
 	local pid_value=$2
 
-	if ! resetprop $pid_name $pid_value; then
-		echo "$pid_name=$pid_value" >>$PID_DB
-	fi
+	# Remove any existing entry for the PID name
+	sed -i "/^$pid_name=/d" $PID_DB
+	# Save the new PID value
+	echo "$pid_name=$pid_value" >>$PID_DB
 }
 
 read_pid() {
 	local pid_name=$1
 	local pid_value
 
-	pid_value=$(resetprop $pid_name 2>/dev/null)
-	if [ -z "$pid_value" ]; then
-		pid_value=$(awk -F= -v name="$pid_name" '$1 == name {print $2}' $PID_DB)
-	fi
-
+	# Read the PID value from the database
+	pid_value=$(awk -F= -v name="$pid_name" '$1 == name {print $2}' $PID_DB)
 	echo $pid_value
 }
 
 remove_pid() {
 	local pid_name=$1
 
-	if resetprop -d $pid_name; then
-		sed -i "/^$pid_name=/d" $PID_DB
-	fi
+	# Remove the PID entry from the database
+	sed -i "/^$pid_name=/d" $PID_DB
+}
+
+kill_all_pids() {
+	while IFS= read -r line; do
+		pid_name=$(echo "$line" | cut -d= -f1)
+		pid_value=$(echo "$line" | cut -d= -f2)
+		if [ -n "$pid_value" ]; then
+			kill -9 "$pid_value" && loger "Killed $pid_name with PID $pid_value"
+			remove_pid "$pid_name"
+		fi
+	done <"$PID_DB"
 }
 
 lmkd_loger() {
@@ -67,8 +75,6 @@ lmkd_loger() {
 	log_file=$1
 
 	resetprop ro.lmk.debug true
-	kill -9 $(read_pid fmiop.lmkd_loger.pid)
-	remove_pid "fmiop.lmkd_loger.pid"
 	$BIN/logcat -v time --pid=$(pidof lmkd) --file=$log_file &
 	local new_pid=$!
 	save_pid "fmiop.lmkd_loger.pid" $new_pid
@@ -104,7 +110,7 @@ lmkd_loger_watcher() {
 
 			mv "$log" $new_log_file
 			lmkd_loger $log
-			logrotate $LOG_FOLDER/${log*%.log}
+			logrotate $LOG_FOLDER/${log*%.log} 
 
 			exec 3>&-
 			set +x
