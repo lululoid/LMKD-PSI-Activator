@@ -1,5 +1,6 @@
+#!/system/bin/sh
 # shellcheck disable=SC3043,SC2034,SC2086,SC3060,SC3010
-# save full loging
+# save full logging
 LOG_FOLDER=$NVBASE/fmiop
 LOG=$LOG_FOLDER/fmiop.log
 mkdir -p $LOG_FOLDER
@@ -35,13 +36,13 @@ lmkd_apply() {
 	# determine if device is lowram?
 	cat <<EOF
 
-⟩ Totalmem = $(free -h | awk '/^Mem:/ {print $2}')
+⟩ Total memory = $(free -h | awk '/^Mem:/ {print $2}')
 EOF
 
 	if [ "$totalmem" -lt 2097152 ]; then
 		uprint "
-	! Device is low ram. Applying low ram tweaks"
-
+  ! Device is low RAM. Applying low RAM tweaks
+"
 		cat <<EOF >>$MODPATH/system.prop
 ro.config.low_ram=true
 ro.lmk.use_psi=true
@@ -61,8 +62,8 @@ EOF
 	approps $MODPATH/system.prop
 	relmkd
 	uprint "⟩ LMKD PSI mode activated
-  Give the better of your RAM, RAM is better being 
-  filled with something useful than left unused"
+  RAM is better utilized with something useful than left unused
+"
 }
 
 count_swap() {
@@ -74,10 +75,10 @@ count_swap() {
 
 	uprint "
 ⟩ Please select SWAP size 
-  Press VOLUME + to DEFAULT
+  Press VOLUME + to use DEFAULT
   Press VOLUME - to SELECT 
   DEFAULT is 0 SWAP
-	"
+  "
 
 	set +x
 	exec 3>&-
@@ -86,14 +87,14 @@ count_swap() {
 		# shellcheck disable=SC2069
 		timeout 0.5 /system/bin/getevent -lqc 1 2>&1 >"$TMPDIR"/events &
 		sleep 0.5
-		if (grep -q 'KEY_VOLUMEDOWN *DOWN' "$TMPDIR"/events); then
+		if grep -q 'KEY_VOLUMEDOWN *DOWN' "$TMPDIR"/events; then
 			if [ $count -eq 0 ]; then
 				swap_size=0
 				swap_in_gb=0
-				ui_print "  $count. 0 SWAP --⟩ RECOMMENDED"
+				uprint "  $count. 0 SWAP --⟩ RECOMMENDED"
 			elif [ $swap_in_gb -lt $totalmem_gb ]; then
 				swap_in_gb=$((swap_in_gb + 1))
-				ui_print "  $count. ${swap_in_gb}GB of SWAP"
+				uprint "  $count. ${swap_in_gb}GB of SWAP"
 				swap_size=$((swap_in_gb * one_gb))
 			fi
 
@@ -101,7 +102,7 @@ count_swap() {
 		elif [ $swap_in_gb -eq $totalmem_gb ] && [ $count != 0 ]; then
 			swap_size=$totalmem
 			count=0
-		elif (grep -q 'KEY_VOLUMEUP *DOWN' "$TMPDIR"/events); then
+		elif grep -q 'KEY_VOLUMEUP *DOWN' "$TMPDIR"/events; then
 			break
 		fi
 	done
@@ -113,7 +114,7 @@ count_swap() {
 make_swap() {
 	dd if=/dev/zero of="$2" bs=1024 count="$1" >/dev/null
 	mkswap -L fmiop_swap "$2" >/dev/null
-	chmod 0600 $2
+	chmod 0600 "$2"
 }
 
 setup_swap() {
@@ -121,49 +122,49 @@ setup_swap() {
 	swap_filename=$NVBASE/fmiop_swap
 	free_space=$(df /data | sed -n '2p' | sed 's/[^0-9 ]*//g' | sed ':a;N;$!ba;s/\n/ /g' | awk '{print $4}')
 
-	if [ ! -f $swap_filename ]; then
+	if [ ! -f "$swap_filename" ]; then
 		count_swap
 		if [ "$free_space" -ge "$swap_size" ] && [ "$swap_size" != 0 ]; then
 			uprint "
 ⟩ Starting making SWAP. Please wait a moment
   $((free_space / 1024))MB available. $((swap_size / 1024))MB needed"
-			make_swap "$swap_size" $swap_filename &&
-				swapon -p 32766 $swap_filename
+			make_swap "$swap_size" "$swap_filename" &&
+				swapon -p 32766 "$swap_filename"
 		elif [ $swap_size -eq 0 ]; then
 			:
 		else
-			ui_print "
+			uprint "
 ⟩ Storage full. Please free up your storage"
 		fi
 	fi
 }
 
 main() {
+	local android_version miui_v_code
 	android_version=$(getprop ro.build.version.release)
 
 	kill_all_pids
-	if [ $android_version -lt 10 ]; then
+	if [ "$android_version" -lt 10 ]; then
 		uprint "
-⟩ Your android version is not supported. Performance
+⟩ Your Android version is not supported. Performance
 tweaks won't be applied. Please upgrade your phone 
 to Android 10+"
 	else
 		miui_v_code=$(resetprop ro.miui.ui.version.code)
 
 		if [ -n "$miui_v_code" ]; then
-			# Add workaround for miui touch issue when lmkd is in psi mode
-			# because despite it's beauty miui is having weird issues
-			cat <<EOF
-⟩ Due to MIUI bug please turn off screen and turn on again if
-  you experiencing touch issue, like can't use navigation
-  gesture or ghost touch
-EOF
+			# Add workaround for MIUI touch issue when LMKD is in PSI mode
+			# because despite its beauty MIUI is having weird issues
+			uprint "
+⟩ Due to MIUI bug, please turn off the screen and turn it on again if
+  you experience touch issues, like can't use navigation
+  gesture or ghost touch"
 			lmkd_apply
-			# Add workaround to keep miui from readd sys.lmk.minfree_levels
+			# Add workaround to keep MIUI from re-adding sys.lmk.minfree_levels
 			# prop back
 			$MODPATH/fmiop_service.sh
 			uprint "
-⟩ LMKD psi service keeper started"
+⟩ LMKD PSI service keeper started"
 		else
 			lmkd_apply
 		fi

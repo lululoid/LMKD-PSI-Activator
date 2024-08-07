@@ -5,25 +5,25 @@ LOG_FOLDER=$NVBASE/$TAG
 LOGFILE=$LOG_FOLDER/$TAG.log
 PID_DB=$LOG_FOLDER/$TAG.pids
 
-[ -z $ZRAM_BLOCK ] && ZRAM_BLOCK=$(awk '/zram/ {print $1}' /proc/swaps)
+[ -z "$ZRAM_BLOCK" ] && ZRAM_BLOCK=$(awk '/zram/ {print $1}' /proc/swaps)
 
-export TAG LOGFILE
+export TAG LOGFILE LOG_FOLDER
 alias uprint="ui_print"
 
 loger() {
 	local log=$1
-	[ -n "$log" ] && echo "⟩ $log" >>$LOGFILE
+	[ -n "$log" ] && echo "
+⟩ $log" >>"$LOGFILE"
 }
 
 logrotate() {
 	local count=0
-
+	local log oldest_log
 	for log in "$@"; do
 		count=$((count + 1))
-
+		# shellcheck disable=SC2012
 		if [ "$count" -gt 2 ]; then
-			# shellcheck disable=SC2012
-			oldest_log=$(ls -tr "$1" | head -n 1)
+			oldest_log=$(ls -tr "$@" | head -n 1)
 			rm -rf "$oldest_log"
 		fi
 	done
@@ -37,29 +37,24 @@ save_pid() {
 	local pid_name=$1
 	local pid_value=$2
 
-	# Remove any existing entry for the PID name
-	sed -i "/^$pid_name=/d" $PID_DB
-	# Save the new PID value
-	echo "$pid_name=$pid_value" >>$PID_DB
+	sed -i "/^$pid_name=/d" "$PID_DB"
+	echo "$pid_name=$pid_value" >>"$PID_DB"
 }
 
 read_pid() {
 	local pid_name=$1
 	local pid_value
-
-	# Read the PID value from the database
-	pid_value=$(awk -F= -v name="$pid_name" '$1 == name {print $2}' $PID_DB)
-	echo $pid_value
+	pid_value=$(awk -F= -v name="$pid_name" '$1 == name {print $2}' "$PID_DB")
+	echo "$pid_value"
 }
 
 remove_pid() {
 	local pid_name=$1
-
-	# Remove the PID entry from the database
-	sed -i "/^$pid_name=/d" $PID_DB
+	sed -i "/^$pid_name=/d" "$PID_DB"
 }
 
 kill_all_pids() {
+	local pid_name pid_value
 	while IFS= read -r line; do
 		pid_name=$(echo "$line" | cut -d= -f1)
 		pid_value=$(echo "$line" | cut -d= -f2)
@@ -71,61 +66,68 @@ kill_all_pids() {
 }
 
 lmkd_loger() {
-	local log_file
-	log_file=$1
+	local log_file=$1
+	local new_pid
 
 	resetprop ro.lmk.debug true
-	kill -9 $(read_pid fmiop.lmkd_loger.pid)
-	remove_pid "fmiop.lmkd_loger.pid"
-	$BIN/logcat -v time --pid=$(pidof lmkd) --file=$log_file &
-	local new_pid=$!
-	save_pid "fmiop.lmkd_loger.pid" $new_pid
+	old_pid=$(read_pid fmiop.lmkd_loger.pid)
+	if [ -n "$old_pid" ]; then
+		kill -9 "$old_pid"
+		remove_pid "fmiop.lmkd_loger.pid"
+	fi
+
+	$BIN/logcat -v time --pid=$(pidof lmkd) -r "$((5 * 1024))" -n 4 --file=$log_file &
+	if [ $? -ne 0 ]; then
+		loger "Failed to start logcat"
+		return 1
+	fi
+	new_pid=$!
+	save_pid "fmiop.lmkd_loger.pid" "$new_pid"
 }
 
 lmkd_loger_watcher() {
-	local lmkd_log_size today_date lmkd_log_size
-	local log="$LOG_FOLDER/lmkd.log"
+	local lmkd_log_size today_date log new_pid
+	log="$LOG_FOLDER/lmkd.log"
 
 	exec 3>&-
 	set +x
 	while true; do
-		# check for loggers pid, if it doesn't exist start one
-		[ -z $(read_pid fmiop.lmkd_loger.pid) ] && {
+		if [ -z "$(read_pid fmiop.lmkd_loger.pid)" ]; then
 			exec 3>&1
 			set -x
 
-			lmkd_loger $log
+			lmkd_loger "$log"
 
 			exec 3>&-
 			set +x
-		}
+		fi
 
-		# limit log size to 10MB then restart the service if it exceeds it
-		lmkd_log_size=$(check_file_size $log)
-		[ $lmkd_log_size -ge 10485760 ] && {
+		lmkd_log_size=$(check_file_size "$log")
+		if [ "$lmkd_log_size" -ge 10485760 ]; then
 			exec 3>&1
 			set -x
 
 			today_date=$(date +%R-%a-%d-%m-%Y)
 			new_log_file="${log%.log}_$today_date.log"
 
-			mv "$log" $new_log_file
+			mv "$log" "$new_log_file"
 			logrotate ${log%.log}*.log
-			lmkd_loger $log
+			lmkd_loger "$log"
 
 			exec 3>&-
 			set +x
-		}
-		sleep 1
+		fi
+		sleep 2
 	done &
 
-	local new_pid=$!
-	save_pid "fmiop.lmkd_loger_watcher.pid" $new_pid
+	new_pid=$!
+	save_pid "fmiop.lmkd_loger_watcher.pid" "$new_pid"
 }
 
 rm_prop() {
+	local prop
 	for prop in "$@"; do
-		resetprop -d $prop && cat <<EOF
+		resetprop -d "$prop" && cat <<EOF
 
   X $prop deleted
 
@@ -138,23 +140,22 @@ relmkd() {
 }
 
 approps() {
-	prop_file=$1
+	local prop_file=$1
+	local prop value
 
 	set -f
-	grep -v '^ *#' "$prop_file" |
-		while IFS='=' read -r prop value; do
-			resetprop -n -p $prop $value
-			cat <<EOF
+	grep -v '^ *#' "$prop_file" | while IFS='=' read -r prop value; do
+		resetprop -n -p "$prop" "$value"
+		cat <<EOF
   › $prop 
 EOF
-			{
-				# shellcheck disable=SC3014
-				[ "$(getprop $prop)" == ${value//=/ } ] &&
-					uprint "  » $value
+		{
+			[ "$(getprop "$prop")" = "${value//=/ }" ] &&
+				uprint "  » $value
 "
-			} || uprint "  ! Failed
+		} || uprint "  ! Failed
 "
-		done
+	done
 }
 
 notif() {
@@ -169,7 +170,7 @@ turnoff_zram() {
 
 	[ -n "$zram" ] && for _ in $(seq 60); do
 		while true; do
-			if swapoff $zram; then
+			if swapoff "$zram"; then
 				loger "$zram turned off"
 				return 0
 			fi
@@ -188,30 +189,28 @@ resize_zram() {
 	local size=$1
 	local zram_id
 
-	turnoff_zram $ZRAM_BLOCK
+	turnoff_zram "$ZRAM_BLOCK"
 	echo 0 >/sys/class/zram-control/hot_remove && loger "$ZRAM_BLOCK removed"
-	# should be after turning off zram
 	zram_id=$(add_zram)
-	[ -e $ZRAM_BLOCK ] && loger "$ZRAM_BLOCK added"
+	[ -e "$ZRAM_BLOCK" ] && loger "$ZRAM_BLOCK added"
 	echo 1 >/sys/block/zram${zram_id}/use_dedup &&
 		loger "use_dedup to reduce memory usage"
-	echo $size >/sys/block/zram${zram_id}/disksize &&
+	echo "$size" >/sys/block/zram${zram_id}/disksize &&
 		loger "set ZRAM$zram_id disksize to $size"
 
-	# keep trying until it's succeeded
-	until mkswap $ZRAM_BLOCK; do
+	until mkswap "$ZRAM_BLOCK"; do
 		sleep 1
 	done
 }
 
 fmiop() {
-	# turn off logging to prevent unnecessary loop logging
+	local new_pid
+
 	set +x
 	exec 3>&-
 
 	while true; do
 		rm_prop sys.lmk.minfree_levels && {
-			# turn on logging back, can't use function because it doesn't work
 			exec 3>&1
 			set -x
 
@@ -222,6 +221,7 @@ fmiop() {
 		}
 		sleep 5
 	done &
-	local new_pid=$!
-	save_pid "fmiop.pid" $new_pid
+
+	new_pid=$!
+	save_pid "fmiop.pid" "$new_pid"
 }

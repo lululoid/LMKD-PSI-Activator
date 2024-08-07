@@ -6,4 +6,6 @@ set -x # Prints commands, prefixing them with a character stored in an environme
 
 . $MODPATH/fmiop.sh
 
-lmkd_loger_watcher
+log="$LOG_FOLDER/fmiop.log"
+logrotate ${log%.log}*.log
+lmkd_loger $LOG_FOLDER/lmkd.log
