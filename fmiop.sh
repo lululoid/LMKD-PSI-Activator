@@ -9,6 +9,7 @@ PID_DB=$LOG_FOLDER/$TAG.pids
 
 export TAG LOGFILE LOG_FOLDER
 alias uprint="ui_print"
+alias resetprop="resetprop -v"
 
 loger() {
 	local log=$1
@@ -144,8 +145,8 @@ approps() {
 	local prop value
 
 	set -f
+	resetprop -f $prop_file
 	grep -v '^ *#' "$prop_file" | while IFS='=' read -r prop value; do
-		resetprop -n -p "$prop" "$value"
 		cat <<EOF
   › $prop 
 EOF
