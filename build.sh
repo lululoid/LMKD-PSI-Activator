@@ -51,6 +51,7 @@ package_name="packages/$module_name-v${version}_$versionCode-beta.zip"
 	customize.sh \
 	module.prop \
 	cleaner.zip \
-	./*service.sh
+	./*service.sh \
+	sqlite3
 
 # check_root "You need ROOT to install this module" || su -c "magisk --install-module $package_name"

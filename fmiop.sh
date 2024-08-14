@@ -4,12 +4,14 @@ TAG=fmiop
 LOG_FOLDER=$NVBASE/$TAG
 LOGFILE=$LOG_FOLDER/$TAG.log
 PID_DB=$LOG_FOLDER/$TAG.pids
+POWERKEEPER_USER_DB=/data/data/com.miui.powerkeeper/databases/user_configure.db
 
 [ -z "$ZRAM_BLOCK" ] && ZRAM_BLOCK=$(awk '/zram/ {print $1}' /proc/swaps)
 
 export TAG LOGFILE LOG_FOLDER
 alias uprint="ui_print"
 alias resetprop="resetprop -v"
+alias sqlite3="$MODPATH/sqlite3"
 
 loger() {
 	local log=$1
@@ -136,6 +138,24 @@ EOF
 	done
 }
 
+lmkd_props_clean() {
+	set --
+	set \
+		"ro.lmk.low" \
+		"ro.lmk.medium" \
+		"ro.lmk.critical_upgrade" \
+		"ro.lmk.kill_heaviest_task" \
+		"ro.lmk.kill_timeout_ms" \
+		"ro.lmk.psi_partial_stall_ms" \
+		"ro.lmk.psi_complete_stall_ms" \
+		"ro.lmk.thrashing_limit_decay" \
+		"ro.lmk.swap_util_max" \
+		"sys.lmk.minfree_levels" \
+		"ro.lmk.upgrade_pressure" \
+		"ro.lmk.downgrade_pressure"
+	rm_prop "$@"
+}
+
 relmkd() {
 	resetprop lmkd.reinit 1
 }
@@ -204,9 +224,16 @@ resize_zram() {
 	done
 }
 
+get_memory_pressure() {
+	local mem_usage memsw_usage memory_pressure
+	mem_usage=$(cat /dev/memcg/memory.usage_in_bytes)
+	memsw_usage=$(cat /dev/memcg/memory.memsw.usage_in_bytes)
+	memory_pressure=$(awk -v mem_usage="$mem_usage" -v memsw_usage="$memsw_usage" 'BEGIN {print int(mem_usage * 100 / memsw_usage)}')
+	echo "$memory_pressure"
+}
+
 fmiop() {
 	local new_pid
-
 	set +x
 	exec 3>&-
 
@@ -220,9 +247,33 @@ fmiop() {
 			set +x
 			exec 3>&-
 		}
-		sleep 5
+
+		memory_pressure=$(get_memory_pressure)
+		sed -i "s/\(Memory pressure.*= \)[0-9]*/\1$memory_pressure/" $MODPATH/module.prop
+		sleep 2
 	done &
 
 	new_pid=$!
 	save_pid "fmiop.pid" "$new_pid"
+}
+
+# To update misc entry in POWERKEEPER_USER_DB
+update_misc_entry() {
+	local key="$1"
+	local new_value="$2"
+	local DB_PATH=$POWERKEEPER_USER_DB
+
+	if [ -z "$key" ] || [ -z "$new_value" ]; then
+		echo "
+⟩ Invalid key value"
+		return 1
+	fi
+
+	sqlite3 "$DB_PATH" <<EOF 1>>$LOGFILE
+    -- Update the value in the misc table
+    UPDATE misc SET value = '$new_value' WHERE name = '$key';
+
+    -- Verify the update
+    SELECT * FROM misc WHERE name = '$key';
+EOF
 }

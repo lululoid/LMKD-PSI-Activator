@@ -30,15 +30,13 @@ set_permissions() {
 	set_perm_recursive "$MODPATH/fmiop.sh" 0 2000 0755 0755
 	set_perm_recursive "$MODPATH/fmiop_service.sh" 0 2000 0755 0755
 	set_perm_recursive "$MODPATH/log_service.sh" 0 2000 0755 0755
+	set_perm_recursive "$MODPATH/sqlite3" 0 2000 0755 0755
 }
 
 lmkd_apply() {
-	# determine if device is lowram?
-	cat <<EOF
-
-⟩ Total memory = $(free -h | awk '/^Mem:/ {print $2}')
-EOF
-
+	echo "⟩ Applying lowmemorykiller properties
+	"
+	# Determine if device is lowram or less than 2GB
 	if [ "$totalmem" -lt 2097152 ]; then
 		uprint "
   ! Device is low RAM. Applying low RAM tweaks
@@ -66,7 +64,38 @@ EOF
 "
 }
 
-count_swap() {
+# Function to get key events
+get_key_event() {
+	local event_type="$1"
+	local event_file="$TMPDIR/events"
+
+	# Capture events
+	timeout 0.5 /system/bin/getevent -lqc 1 >"$event_file" 2>&1 &
+
+	# Sleep to give time for the event to be captured
+	sleep 0.5
+
+	# Check for the specific event
+	grep -q "$event_type" "$event_file"
+}
+
+# Function to handle SWAP size logic
+handle_swap_size() {
+	if [ $count -eq 0 ]; then
+		swap_size=0
+		swap_in_gb=0
+		uprint "  $count. 0 SWAP --⟩ RECOMMENDED"
+	elif [ $swap_in_gb -lt $totalmem_gb ]; then
+		swap_in_gb=$((swap_in_gb + 1))
+		uprint "  $count. ${swap_in_gb}GB of SWAP"
+		swap_size=$((swap_in_gb * one_gb))
+	fi
+
+	count=$((count + 1))
+}
+
+# Main loop to handle user input and adjust SWAP size
+setup_swap_size() {
 	local one_gb=$((1024 * 1024))
 	local totalmem_gb=$(((totalmem / 1024 / 1024) + 1))
 	local count=0
@@ -84,25 +113,12 @@ count_swap() {
 	exec 3>&-
 
 	while true; do
-		# shellcheck disable=SC2069
-		timeout 0.5 /system/bin/getevent -lqc 1 2>&1 >"$TMPDIR"/events &
-		sleep 0.5
-		if grep -q 'KEY_VOLUMEDOWN *DOWN' "$TMPDIR"/events; then
-			if [ $count -eq 0 ]; then
-				swap_size=0
-				swap_in_gb=0
-				uprint "  $count. 0 SWAP --⟩ RECOMMENDED"
-			elif [ $swap_in_gb -lt $totalmem_gb ]; then
-				swap_in_gb=$((swap_in_gb + 1))
-				uprint "  $count. ${swap_in_gb}GB of SWAP"
-				swap_size=$((swap_in_gb * one_gb))
-			fi
-
-			count=$((count + 1))
+		if get_key_event 'KEY_VOLUMEDOWN *DOWN'; then
+			handle_swap_size
 		elif [ $swap_in_gb -eq $totalmem_gb ] && [ $count != 0 ]; then
 			swap_size=$totalmem
 			count=0
-		elif grep -q 'KEY_VOLUMEUP *DOWN' "$TMPDIR"/events; then
+		elif get_key_event 'KEY_VOLUMEUP *DOWN'; then
 			break
 		fi
 	done
@@ -123,7 +139,7 @@ setup_swap() {
 	free_space=$(df /data | sed -n '2p' | sed 's/[^0-9 ]*//g' | sed ':a;N;$!ba;s/\n/ /g' | awk '{print $4}')
 
 	if [ ! -f "$swap_filename" ]; then
-		count_swap
+		setup_swap_size
 		if [ "$free_space" -ge "$swap_size" ] && [ "$swap_size" != 0 ]; then
 			uprint "
 ⟩ Starting making SWAP. Please wait a moment
@@ -139,6 +155,42 @@ setup_swap() {
 	fi
 }
 
+apply_touch_issue_workaround() {
+	# Add workaround for MIUI touch issue when LMKD is in PSI mode
+	# because despite its beauty MIUI is having weird issues
+	cat <<EOF
+⟩ Do you want to apply workaround for MIUI ghost 
+  touch bug? If you ever have one I recommend to 
+  choose yes.
+  This will affect thermal system, it tested on 
+  mine and it's harmless. Report to my repo if 
+  anything happens.
+
+  Press VOLUME + to apply workaround
+  Press VOLUME - to skip
+
+EOF
+
+	while true; do
+		if get_key_event 'KEY_VOLUMEUP *DOWN'; then
+			entries="thermal_IECtest_config_enable 
+									thermal_IECtest_config_enable
+									thermal_scenario_config_enable"
+			local value=false
+
+			for entry in $entries; do
+				update_misc_entry "$entry" "$value"
+				echo "  › $entry 
+  » $value
+				"
+			done
+			break
+		elif get_key_event 'KEY_VOLUMEDOWN *DOWN'; then
+			break
+		fi
+	done
+}
+
 main() {
 	local android_version miui_v_code
 	android_version=$(getprop ro.build.version.release)
@@ -151,21 +203,25 @@ tweaks won't be applied. Please upgrade your phone
 to Android 10+"
 	else
 		miui_v_code=$(resetprop ro.miui.ui.version.code)
+		cat <<EOF
+⟩ Total memory = $(free -h | awk '/^Mem:/ {print $2}')
+
+EOF
 
 		if [ -n "$miui_v_code" ]; then
-			# Add workaround for MIUI touch issue when LMKD is in PSI mode
-			# because despite its beauty MIUI is having weird issues
-			uprint "
-⟩ Due to MIUI bug, please turn off the screen and turn it on again if
-  you experience touch issues, like can't use navigation
-  gesture or ghost touch"
+			apply_touch_issue_workaround
+
+			# Clean unnecessary props from previous version if available
+			[ -d $NVBASE/modules/$TAG ] &&
+				lmkd_props_clean
 			lmkd_apply
-			# Add workaround to keep MIUI from re-adding sys.lmk.minfree_levels
-			# prop back
+
+			# Add workaround to keep MIUI from re-adding sys.lmk.minfree_levels property back
 			$MODPATH/fmiop_service.sh
 			uprint "
 ⟩ LMKD PSI service keeper started"
 		else
+			lmkd_props_clean
 			lmkd_apply
 		fi
 		$MODPATH/log_service.sh
