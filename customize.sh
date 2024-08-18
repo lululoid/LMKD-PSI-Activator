@@ -34,8 +34,6 @@ set_permissions() {
 }
 
 lmkd_apply() {
-	echo "⟩ Applying lowmemorykiller properties
-	"
 	# Determine if device is lowram or less than 2GB
 	if [ "$totalmem" -lt 2097152 ]; then
 		uprint "
@@ -58,10 +56,8 @@ EOF
 
 	rm_prop sys.lmk.minfree_levels
 	approps $MODPATH/system.prop
-	relmkd
 	uprint "⟩ LMKD PSI mode activated
-  RAM is better utilized with something useful than left unused
-"
+  RAM is better utilized with something useful than left unused"
 }
 
 # Function to get key events
@@ -142,8 +138,9 @@ setup_swap() {
 		setup_swap_size
 		if [ "$free_space" -ge "$swap_size" ] && [ "$swap_size" != 0 ]; then
 			uprint "
-⟩ Starting making SWAP. Please wait a moment
-  $((free_space / 1024))MB available. $((swap_size / 1024))MB needed"
+⟩ Starting making SWAP. Please wait a moment...
+  $((free_space / 1024))MB available. $((swap_size / 1024))MB needed
+	"
 			make_swap "$swap_size" "$swap_filename" &&
 				swapon -p 32766 "$swap_filename"
 		elif [ $swap_size -eq 0 ]; then
@@ -184,6 +181,10 @@ EOF
   » $value
 				"
 			done
+
+			kill $(pidof com.miui.powerkeeper) &&
+				uprint "  › powerkeeper killed
+							"
 			break
 		elif get_key_event 'KEY_VOLUMEDOWN *DOWN'; then
 			break
@@ -210,7 +211,8 @@ EOF
 
 		if [ -n "$miui_v_code" ]; then
 			apply_touch_issue_workaround
-
+			echo "⟩ Applying lowmemorykiller properties
+	"
 			# Clean unnecessary props from previous version if available
 			[ -d $NVBASE/modules/$TAG ] &&
 				lmkd_props_clean
@@ -221,9 +223,12 @@ EOF
 			uprint "
 ⟩ LMKD PSI service keeper started"
 		else
+			echo "⟩ Applying lowmemorykiller properties
+	"
 			lmkd_props_clean
 			lmkd_apply
 		fi
+		relmkd
 		$MODPATH/log_service.sh
 	fi
 }

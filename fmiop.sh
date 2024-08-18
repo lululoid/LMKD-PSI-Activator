@@ -5,7 +5,6 @@ LOG_FOLDER=$NVBASE/$TAG
 LOGFILE=$LOG_FOLDER/$TAG.log
 PID_DB=$LOG_FOLDER/$TAG.pids
 POWERKEEPER_USER_DB=/data/data/com.miui.powerkeeper/databases/user_configure.db
-
 [ -z "$ZRAM_BLOCK" ] && ZRAM_BLOCK=$(awk '/zram/ {print $1}' /proc/swaps)
 
 export TAG LOGFILE LOG_FOLDER
