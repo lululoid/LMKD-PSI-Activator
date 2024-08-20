@@ -170,22 +170,10 @@ EOF
 
 	while true; do
 		if get_key_event 'KEY_VOLUMEUP *DOWN'; then
-			entries="thermal_IECtest_config_enable 
-									thermal_IECtest_config_enable
-									thermal_scenario_config_enable
-									thermal_sptm_config_enable"
-			local value=true
-
-			for entry in $entries; do
-				update_misc_entry "$entry" "$value"
-				echo "  › $entry 
-  » $value
-				"
-			done
-
-			kill $(pidof com.miui.powerkeeper) &&
-				uprint "  › powerkeeper killed
-							"
+			echo "  › Installing extra module for MIUI
+"
+			magisk --install-module $MODPATH/packages/fogim*
+			echo ""
 			break
 		elif get_key_event 'KEY_VOLUMEDOWN *DOWN'; then
 			break
@@ -221,7 +209,8 @@ EOF
 			uprint "
 ⟩ LMKD PSI service keeper started"
 		else
-			echo "⟩ Applying lowmemorykiller properties
+			echo "
+⟩ Applying lowmemorykiller properties
 	"
 			lmkd_props_clean
 			lmkd_apply
