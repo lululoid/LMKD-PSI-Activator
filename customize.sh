@@ -207,7 +207,8 @@ EOF
 			# Add workaround to keep MIUI from re-adding sys.lmk.minfree_levels property back
 			$MODPATH/fmiop_service.sh
 			uprint "
-⟩ LMKD PSI service keeper started"
+⟩ LMKD PSI service keeper started
+"
 		else
 			echo "
 ⟩ Applying lowmemorykiller properties

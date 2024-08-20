@@ -42,6 +42,7 @@ sed -i "s/\(^version=v\)[0-9.]*\(.*\)/\1$version\2/; s/\(^versionCode=\)[0-9]*/\
 
 # Extract module name
 module_name=$(sed -n 's/^id=\(.*\)/\1/p' module.prop)
+fogimp_pkg=$(ls -tr packages/fogimp* | tail -n1)
 
 # Create a zip package
 package_name="packages/$module_name-v${version}_$versionCode-beta.zip"
@@ -52,6 +53,7 @@ package_name="packages/$module_name-v${version}_$versionCode-beta.zip"
 	module.prop \
 	cleaner.zip \
 	./*service.sh \
-	sqlite3
+	sqlite3 \
+	$fogimp_pkg
 
 check_root "You need ROOT to install this module" || su -c "magisk --install-module $package_name"
