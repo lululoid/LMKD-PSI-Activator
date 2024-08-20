@@ -172,8 +172,9 @@ EOF
 		if get_key_event 'KEY_VOLUMEUP *DOWN'; then
 			entries="thermal_IECtest_config_enable 
 									thermal_IECtest_config_enable
-									thermal_scenario_config_enable"
-			local value=false
+									thermal_scenario_config_enable
+									thermal_sptm_config_enable"
+			local value=true
 
 			for entry in $entries; do
 				update_misc_entry "$entry" "$value"
@@ -213,9 +214,6 @@ EOF
 			apply_touch_issue_workaround
 			echo "⟩ Applying lowmemorykiller properties
 	"
-			# Clean unnecessary props from previous version if available
-			[ -d $NVBASE/modules/$TAG ] &&
-				lmkd_props_clean
 			lmkd_apply
 
 			# Add workaround to keep MIUI from re-adding sys.lmk.minfree_levels property back
