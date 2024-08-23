@@ -142,7 +142,7 @@ setup_swap() {
   $((free_space / 1024))MB available. $((swap_size / 1024))MB needed
 	"
 			make_swap "$swap_size" "$swap_filename" &&
-				swapon -p 32766 "$swap_filename"
+				swapon "$swap_filename"
 		elif [ $swap_size -eq 0 ]; then
 			:
 		else
@@ -162,6 +162,8 @@ apply_touch_issue_workaround() {
   This will affect thermal system, it tested on 
   mine and it's harmless. Report to my repo if 
   anything happens.
+  Turn off screen and turn it on again if problem
+  persist.
 
   Press VOLUME + to apply workaround
   Press VOLUME - to skip
