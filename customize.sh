@@ -159,9 +159,6 @@ apply_touch_issue_workaround() {
 ⟩ Do you want to apply workaround for MIUI ghost 
   touch bug? If you ever have one I recommend to 
   choose yes.
-  This will affect thermal system, it tested on 
-  mine and it's harmless. Report to my repo if 
-  anything happens.
   Turn off screen and turn it on again if problem
   persist.
 
