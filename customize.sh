@@ -141,8 +141,13 @@ setup_swap() {
 ⟩ Starting making SWAP. Please wait a moment...
   $((free_space / 1024))MB available. $((swap_size / 1024))MB needed
 	"
-			make_swap "$swap_size" "$swap_filename" &&
+			zram_priority=$(grep "/dev/block/zram0" /proc/swaps | awk '{print $5}')
+			make_swap "$swap_size" "$swap_filename" && if [[ $zram_priority -gt 0 ]]; then
+				swap_priority=$((zram_priority - 1))
+				swapon -p $swap_priority "$swap_filename"
+			else
 				swapon "$swap_filename"
+			fi
 		elif [ $swap_size -eq 0 ]; then
 			:
 		else
