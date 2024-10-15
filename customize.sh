@@ -1,6 +1,7 @@
 #!/system/bin/sh
 # shellcheck disable=SC3043,SC2034,SC2086,SC3060,SC3010
 # save full logging
+NVBASE=/data/adb
 LOG_FOLDER=$NVBASE/fmiop
 LOG=$LOG_FOLDER/fmiop.log
 mkdir -p $LOG_FOLDER
