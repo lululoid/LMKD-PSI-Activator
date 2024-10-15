@@ -55,4 +55,6 @@ package_name="packages/$module_name-v${version}_$versionCode-beta.zip"
 	./*service.sh \
 	$fogimp_pkg
 
-check_root "You need ROOT to install this module" || su -c "magisk --install-module $package_name"
+if [ "$2" = "-i" ]; then
+	check_root "You need ROOT to install this module" || su -c "magisk --install-module $package_name"
+fi
