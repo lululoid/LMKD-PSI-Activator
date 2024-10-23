@@ -231,8 +231,24 @@ get_memory_pressure() {
 	echo "$memory_pressure"
 }
 
+is_device_sleeping() {
+	dumpsys power | grep 'mWakefulness=' | grep 'Asleep'
+}
+
+apply_lmkd_props() {
+	resetprop -f $MODPATH/system.prop
+	resetprop -f $MODPATH/../fogimp/system.prop
+}
+
 fmiop() {
-	local new_pid
+	local new_pid minfree_levels
+	minfree_levels=$(getprop sys.lmk.minfree_levels)
+
+	if [ -n "$minfree_levels" ]; then
+		echo "$minfree_levels" >$LOG_FOLDER/minfree_levels
+	fi
+
+	minfree_levels=$(cat $LOG_FOLDER/minfree_levels)
 	set +x
 	exec 3>&-
 
@@ -249,30 +265,36 @@ fmiop() {
 
 		memory_pressure=$(get_memory_pressure)
 		sed -i "s/\(Memory pressure.*= \)[0-9]*/\1$memory_pressure/" $MODPATH/module.prop
+
+		if is_device_sleeping; then
+			exec 3>&1
+			set -x
+
+			lmkd_props_clean
+			resetprop sys.lmk.minfree_levels "$minfree_levels"
+			relmkd
+
+			set +x
+			exec 3>&-
+
+			until ! is_device_sleeping; do
+				sleep 1
+			done
+
+			exec 3>&1
+			set -x
+
+			lmkd_props_clean
+			apply_lmkd_props
+			relmkd
+
+			set +x
+			exec 3>&-
+
+		fi
 		sleep 2
 	done &
 
 	new_pid=$!
 	save_pid "fmiop.pid" "$new_pid"
-}
-
-# To update misc entry in POWERKEEPER_USER_DB
-update_misc_entry() {
-	local key="$1"
-	local new_value="$2"
-	local DB_PATH=$POWERKEEPER_USER_DB
-
-	if [ -z "$key" ] || [ -z "$new_value" ]; then
-		echo "
-⟩ Invalid key value"
-		return 1
-	fi
-
-	sqlite3 "$DB_PATH" <<EOF 1>>$LOGFILE
-    -- Update the value in the misc table
-    UPDATE misc SET value = '$new_value' WHERE name = '$key';
-
-    -- Verify the update
-    SELECT * FROM misc WHERE name = '$key';
-EOF
 }
