@@ -240,11 +240,31 @@ apply_lmkd_props() {
 	resetprop -f $MODPATH/../fogimp/system.prop
 }
 
+adjust_minfree_pairs_by_percentage() {
+	percentage="$1"
+	input="$2"
+
+	# Loop through each pair separated by comma
+	echo "$input" | awk -v perc="$percentage" '{
+        n = split($0, pairs, ",");
+        for (i = 1; i <= n; i++) {
+            split(pairs[i], kv, ":");
+            # Adjust the first value by the percentage
+            kv[1] = kv[1] * (1 + perc / 100);
+            printf "%d:%s", kv[1], kv[2];
+            if (i < n) {
+                printf ",";
+            }
+        }
+    }'
+}
+
 fmiop() {
 	local new_pid minfree_levels
 	minfree_levels=$(getprop sys.lmk.minfree_levels)
 
 	if [ -n "$minfree_levels" ]; then
+		minfree_levels=$(adjust_minfree_pairs_by_percentage 20 "$minfree_levels")
 		echo "$minfree_levels" >$LOG_FOLDER/minfree_levels
 	fi
 
