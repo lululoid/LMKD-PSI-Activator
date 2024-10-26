@@ -87,38 +87,31 @@ lmkd_loger() {
 	save_pid "fmiop.lmkd_loger.pid" "$new_pid"
 }
 
-lmkd_loger_watcher() {
-	local lmkd_log_size today_date log new_pid
-	log="$LOG_FOLDER/lmkd.log"
+loger_watcher() {
+	local log_size today_date log new_pid
+	logs="$1"
 
 	exec 3>&-
 	set +x
+
 	while true; do
-		if [ -z "$(read_pid fmiop.lmkd_loger.pid)" ]; then
-			exec 3>&1
-			set -x
+		for log in $logs; do
+			log_size=$(check_file_size "$log")
+			if [ "$log_size" -ge 10485760 ]; then
+				exec 3>&1
+				set -x
 
-			lmkd_loger "$log"
+				today_date=$(date +%R-%a-%d-%m-%Y)
+				new_log_file="${log%.log}_$today_date.log"
 
-			exec 3>&-
-			set +x
-		fi
+				cp "$log" "$new_log_file"
+				echo "" >$log
+				logrotate ${log%.log}*.log
 
-		lmkd_log_size=$(check_file_size "$log")
-		if [ "$lmkd_log_size" -ge 10485760 ]; then
-			exec 3>&1
-			set -x
-
-			today_date=$(date +%R-%a-%d-%m-%Y)
-			new_log_file="${log%.log}_$today_date.log"
-
-			mv "$log" "$new_log_file"
-			logrotate ${log%.log}*.log
-			lmkd_loger "$log"
-
-			exec 3>&-
-			set +x
-		fi
+				exec 3>&-
+				set +x
+			fi
+		done
 		sleep 2
 	done &
 
