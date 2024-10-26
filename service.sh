@@ -12,19 +12,24 @@ set -x # Prints commands, prefixing them with a character stored in an environme
 echo "
 ⟩ $(date -Is)" >>$LOG
 
-totalmem=$($BIN/free | awk '/^Mem:/ {print $2}')
+TOTALMEM=$($BIN/free | awk '/^Mem:/ {print $2}')
 swap_filename=$NVBASE/fmiop_swap
-zram_size=$(awk -v size="$totalmem" \
+zram_size=$(awk -v size="$TOTALMEM" \
 	'BEGIN { printf "%.0f\n", size * 0.65 }')
+CPU_CORES_COUNT=$(grep -c ^processor /proc/cpuinfo)
 
 # export for fmiop_service.sh
-export MODPATH BIN NVBASE LOG_ENABLED LOG_FOLDER LOG
+export MODPATH BIN NVBASE LOG_ENABLED LOG_FOLDER LOG CPU_CORES_COUNT
 
 . $MODDIR/fmiop.sh
 
-resize_zram $totalmem
-# idk, the values is just for experimenting
-$BIN/swapon -p 32767 $ZRAM_BLOCK
+turnoff_zram $ZRAM_BLOCK
+remove_zram 0 && loger "$zram_block removed"
+for _ in $(seq 1 $CPU_CORES_COUNT); do
+	zram_id=$(add_zram)
+	resize_zram $((TOTALMEM / CPU_CORES_COUNT)) $zram_id
+done
+
 $BIN/swapon -p 32766 $swap_filename && loger "$swap_filename turned on"
 
 until [ $(resetprop sys.boot_completed) -eq 1 ]; do

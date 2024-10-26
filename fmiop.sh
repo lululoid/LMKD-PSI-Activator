@@ -37,7 +37,7 @@ check_file_size() {
 
 save_pid() {
 	local pid_name=$1
-	local pid_value=$2
+	local pid_vanue=$2
 
 	sed -i "/^$pid_name=/d" "$PID_DB"
 	echo "$pid_name=$pid_value" >>"$PID_DB"
@@ -181,14 +181,12 @@ notif() {
 turnoff_zram() {
 	local zram=$1
 
-	[ -n "$zram" ] && for _ in $(seq 60); do
-		while true; do
-			if swapoff "$zram"; then
-				loger "$zram turned off"
-				return 0
-			fi
-			sleep 1
-		done
+	[ -n "$zram" ] && for _ in $(seq 5); do
+		if swapoff "$zram"; then
+			loger "$zram turned off"
+			return 0
+		fi
+		sleep 1
 	done
 
 	return 1
@@ -198,22 +196,32 @@ add_zram() {
 	cat /sys/class/zram-control/hot_add
 }
 
+remove_zram() {
+	echo $1 >/sys/class/zram-control/hot_remove
+}
+
 resize_zram() {
 	local size=$1
-	local zram_id
+	local zram_id=$2
+	local zram_block
 
-	turnoff_zram "$ZRAM_BLOCK"
-	echo 0 >/sys/class/zram-control/hot_remove && loger "$ZRAM_BLOCK removed"
-	zram_id=$(add_zram)
-	[ -e "$ZRAM_BLOCK" ] && loger "$ZRAM_BLOCK added"
+	zram_block=/dev/block/zram$zram_id
+	turnoff_zram $zram_block
+
+	[ -e "$zram_block" ] && loger "$zram_block added"
 	echo 1 >/sys/block/zram${zram_id}/use_dedup &&
 		loger "use_dedup to reduce memory usage"
 	echo "$size" >/sys/block/zram${zram_id}/disksize &&
 		loger "set ZRAM$zram_id disksize to $size"
 
-	until mkswap "$ZRAM_BLOCK"; do
+	for _ in $(seq 5); do
+		if mkswap "$zram_block"; then
+			break
+		fi
 		sleep 1
 	done
+	# idk, the values is just for experimenting
+	$BIN/swapon -p 32767 /dev/block/zram$zram_id
 }
 
 get_memory_pressure() {
@@ -287,6 +295,17 @@ fmiop() {
 			resetprop sys.lmk.minfree_levels "$minfree_levels"
 			relmkd
 
+			for _ in $(seq 0 $((CPU_CORES_COUNT - 1))); do
+				turnoff_zram /dev/block/zram$_
+
+				if ! is_device_sleeping; then
+					active_zram_count=$(grep -c '/dev/block/zram' /proc/swaps)
+					if [ $active_zram_count -lt $CPU_CORES_COUNT ]; then
+						break
+					fi
+				fi
+			done
+
 			set +x
 			exec 3>&-
 
@@ -296,6 +315,10 @@ fmiop() {
 
 			exec 3>&1
 			set -x
+
+			for _ in $(seq 0 $((CPU_CORES_COUNT - 1))); do
+				$BIN/swapon -p 32767 /dev/block/zram$_
+			done
 
 			lmkd_props_clean
 			apply_lmkd_props
