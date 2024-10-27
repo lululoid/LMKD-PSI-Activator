@@ -261,15 +261,8 @@ adjust_minfree_pairs_by_percentage() {
 }
 
 fmiop() {
-	local new_pid minfree_levels
-	minfree_levels=$(getprop sys.lmk.minfree_levels)
+	local new_pid
 
-	if [ -n "$minfree_levels" ]; then
-		minfree_levels=$(adjust_minfree_pairs_by_percentage 20 "$minfree_levels")
-		echo "$minfree_levels" >$LOG_FOLDER/minfree_levels
-	fi
-
-	minfree_levels=$(cat $LOG_FOLDER/minfree_levels)
 	set +x
 	exec 3>&-
 
@@ -290,10 +283,6 @@ fmiop() {
 		if is_device_sleeping; then
 			exec 3>&1
 			set -x
-
-			lmkd_props_clean
-			resetprop sys.lmk.minfree_levels "$minfree_levels"
-			relmkd
 
 			for _ in $(seq 0 $((CPU_CORES_COUNT - 1))); do
 				turnoff_zram /dev/block/zram$_
@@ -319,10 +308,6 @@ fmiop() {
 			for _ in $(seq 0 $((CPU_CORES_COUNT - 1))); do
 				$BIN/swapon -p 32767 /dev/block/zram$_
 			done
-
-			lmkd_props_clean
-			apply_lmkd_props
-			relmkd
 
 			set +x
 			exec 3>&-
