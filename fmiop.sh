@@ -288,12 +288,14 @@ fmiop() {
 				turnoff_zram /dev/block/zram$_
 
 				if ! is_device_sleeping; then
-					active_zram_count=$(grep -c '/dev/block/zram' /proc/swaps)
-					if [ $active_zram_count -lt $CPU_CORES_COUNT ]; then
-						break
-					fi
+					until [ $(grep -c '/dev/block/zram' /proc/swaps) -eq $CPU_CORES_COUNT ]; do
+						for _ in $(seq 0 $((CPU_CORES_COUNT - 1))); do
+							$BIN/swapon -p 32767 /dev/block/zram$_
+						done
+						break 2
+					done
 				fi
-			done
+			done &
 
 			set +x
 			exec 3>&-
