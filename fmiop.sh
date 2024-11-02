@@ -4,13 +4,11 @@ TAG=fmiop
 LOG_FOLDER=$NVBASE/$TAG
 LOGFILE=$LOG_FOLDER/$TAG.log
 PID_DB=$LOG_FOLDER/$TAG.pids
-POWERKEEPER_USER_DB=/data/data/com.miui.powerkeeper/databases/user_configure.db
 [ -z "$ZRAM_BLOCK" ] && ZRAM_BLOCK=$(awk '/zram/ {print $1}' /proc/swaps)
 
 export TAG LOGFILE LOG_FOLDER
 alias uprint="ui_print"
 alias resetprop="resetprop -v"
-alias sqlite3="$MODPATH/sqlite3"
 
 loger() {
 	local log=$1
@@ -37,7 +35,7 @@ check_file_size() {
 
 save_pid() {
 	local pid_name=$1
-	local pid_vanue=$2
+	local pid_value=$2
 
 	sed -i "/^$pid_name=/d" "$PID_DB"
 	echo "$pid_name=$pid_value" >>"$PID_DB"
@@ -189,11 +187,16 @@ turnoff_zram() {
 		sleep 1
 	done
 
+	loger "Failed to turn off $zram"
 	return 1
 }
 
 add_zram() {
-	cat /sys/class/zram-control/hot_add
+	zram_id=$(cat /sys/class/zram-control/hot_add)
+	if [ -n "$zram_id" ]; then
+		loger "zram$zram_id created" && echo "$zram_id"
+	fi
+	return 1
 }
 
 remove_zram() {
@@ -220,7 +223,7 @@ resize_zram() {
 		fi
 		sleep 1
 	done
-	# idk, the values is just for experimenting
+
 	$BIN/swapon -p 32767 /dev/block/zram$zram_id
 }
 
@@ -284,8 +287,10 @@ fmiop() {
 			exec 3>&1
 			set -x
 
+			zram_turning_off=0
+
 			for _ in $(seq 0 $((CPU_CORES_COUNT - 1))); do
-				turnoff_zram /dev/block/zram$_
+				is_device_sleeping && turnoff_zram /dev/block/zram$_ && zram_turning_off=$((zram_turning_off + 1))
 
 				if ! is_device_sleeping; then
 					until [ $(grep -c '/dev/block/zram' /proc/swaps) -eq $CPU_CORES_COUNT ]; do
@@ -295,7 +300,7 @@ fmiop() {
 						break 2
 					done
 				fi
-			done &
+			done
 
 			set +x
 			exec 3>&-
@@ -307,9 +312,11 @@ fmiop() {
 			exec 3>&1
 			set -x
 
-			for _ in $(seq 0 $((CPU_CORES_COUNT - 1))); do
-				$BIN/swapon -p 32767 /dev/block/zram$_
-			done
+			if [ $(grep -c '/dev/block/zram' /proc/swaps) -lt $CPU_CORES_COUNT ]; then
+				for _ in $(seq 0 $((CPU_CORES_COUNT - 1))); do
+					$BIN/swapon -p 32767 /dev/block/zram$_
+				done
+			fi
 
 			set +x
 			exec 3>&-
