@@ -305,6 +305,12 @@ fmiop() {
 			elif ! [ -e /dev/block/zram1 ]; then
 				zram_id=$(add_zram)
 				resize_zram $TOTALMEM $zram_id
+			elif kill -0 $swapoff_pid; then
+				if [ $zram_block = "/dev/block/zram1" ]; then
+					$BIN/swapon -p 32767 /dev/block/zram0
+				elif [ $zram_block = /dev/block/zram0 ]; then
+					$BIN/swapon -p 32767 /dev/block/zram1
+				fi
 			fi
 
 			set +x
