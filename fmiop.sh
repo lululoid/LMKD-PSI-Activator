@@ -4,7 +4,6 @@ TAG=fmiop
 LOG_FOLDER=$NVBASE/$TAG
 LOGFILE=$LOG_FOLDER/$TAG.log
 PID_DB=$LOG_FOLDER/$TAG.pids
-[ -z "$ZRAM_BLOCK" ] && ZRAM_BLOCK=$(awk '/zram/ {print $1}' /proc/swaps)
 
 export TAG LOGFILE LOG_FOLDER
 alias uprint="ui_print"
@@ -264,7 +263,7 @@ adjust_minfree_pairs_by_percentage() {
 }
 
 fmiop() {
-	local new_pid
+	local new_pid zram_block swapoff_pid
 
 	set +x
 	exec 3>&-
@@ -283,24 +282,13 @@ fmiop() {
 		memory_pressure=$(get_memory_pressure)
 		sed -i "s/\(Memory pressure.*= \)[0-9]*/\1$memory_pressure/" $MODPATH/module.prop
 
-		if is_device_sleeping; then
+		if is_device_sleeping && ! kill -0 $swapoff_pid; then
 			exec 3>&1
 			set -x
 
-			zram_turning_off=0
-
-			for _ in $(seq 0 $((CPU_CORES_COUNT - 1))); do
-				is_device_sleeping && turnoff_zram /dev/block/zram$_ && zram_turning_off=$((zram_turning_off + 1))
-
-				if ! is_device_sleeping; then
-					until [ $(grep -c '/dev/block/zram' /proc/swaps) -eq $CPU_CORES_COUNT ]; do
-						for _ in $(seq 0 $((CPU_CORES_COUNT - 1))); do
-							$BIN/swapon -p 32767 /dev/block/zram$_
-						done
-						break 2
-					done
-				fi
-			done
+			zram_block=$(awk '/zram/ {print $1}' /proc/swaps)
+			is_device_sleeping && turnoff_zram $zram_block &
+			swapoff_pid=$!
 
 			set +x
 			exec 3>&-
@@ -312,10 +300,11 @@ fmiop() {
 			exec 3>&1
 			set -x
 
-			if [ $(grep -c '/dev/block/zram' /proc/swaps) -lt $CPU_CORES_COUNT ]; then
-				for _ in $(seq 0 $((CPU_CORES_COUNT - 1))); do
-					$BIN/swapon -p 32767 /dev/block/zram$_
-				done
+			if ! kill -0 $swapoff_pid; then
+				$BIN/swapon -p 32767 $zram_block
+			elif ! [ -e /dev/block/zram1 ]; then
+				zram_id=$(add_zram)
+				resize_zram $TOTALMEM $zram_id
 			fi
 
 			set +x
