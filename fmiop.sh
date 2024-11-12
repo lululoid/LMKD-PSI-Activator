@@ -178,7 +178,7 @@ notif() {
 turnoff_zram() {
 	local zram=$1
 
-	[ -n "$zram" ] && for _ in $(seq 5); do
+	[ -n "$zram" ] && for _ in $(seq 20); do
 		if swapoff "$zram"; then
 			loger "$zram turned off"
 			return 0
@@ -238,6 +238,10 @@ is_device_sleeping() {
 	dumpsys power | grep 'mWakefulness=' | grep 'Asleep'
 }
 
+is_device_dozing() {
+	dumpsys deviceidle get deep | grep IDLE
+}
+
 apply_lmkd_props() {
 	resetprop -f $MODPATH/system.prop
 	resetprop -f $MODPATH/../fogimp/system.prop
@@ -282,12 +286,13 @@ fmiop() {
 		memory_pressure=$(get_memory_pressure)
 		sed -i "s/\(Memory pressure.*= \)[0-9]*/\1$memory_pressure/" $MODPATH/module.prop
 
-		if is_device_sleeping && ! kill -0 $swapoff_pid; then
+		if [ $memory_pressure -lt 65 ] &&
+			is_device_sleeping && ! kill -0 $swapoff_pid; then
 			exec 3>&1
 			set -x
 
 			zram_block=$(awk '/zram/ {print $1}' /proc/swaps)
-			is_device_sleeping && turnoff_zram $zram_block &
+			turnoff_zram $zram_block &
 			swapoff_pid=$!
 
 			set +x
