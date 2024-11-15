@@ -266,8 +266,17 @@ adjust_minfree_pairs_by_percentage() {
     }'
 }
 
+turnon_zram() {
+	if $BIN/swapon -p 32767 $1; then
+		loger "$1 turned on"
+	else
+		loger "Failed to turn on $1"
+		return 1
+	fi
+}
+
 fmiop() {
-	local new_pid zram_block swapoff_pid
+	local new_pid zram_block swapoff_pid memory_pressure
 
 	set +x
 	exec 3>&-
@@ -286,17 +295,24 @@ fmiop() {
 		memory_pressure=$(get_memory_pressure)
 		sed -i "s/\(Memory pressure.*= \)[0-9]*/\1$memory_pressure/" $MODPATH/module.prop
 
-		if [ $memory_pressure -lt 65 ] &&
-			is_device_sleeping && ! kill -0 $swapoff_pid; then
-			exec 3>&1
-			set -x
+		if is_device_dozing && ! kill -0 $swapoff_pid; then
+			until [ $memory_pressure -gt 65 ] || ! is_device_sleeping; do
+				exec 3>&1
+				set -x
 
-			zram_block=$(awk '/zram/ {print $1}' /proc/swaps)
-			turnoff_zram $zram_block &
-			swapoff_pid=$!
+				memory_pressure=$(get_memory_pressure)
+				if ! kill -0 $swapoff_pid; then
+					loger "No swapoff_pid. Turning off zram..."
+					zram_block=$(awk '/zram/ {print $1}' /proc/swaps)
+					turnoff_zram $zram_block &
+					swapoff_pid=$!
+				fi
 
-			set +x
-			exec 3>&-
+				set +x
+				exec 3>&-
+			done
+
+			loger "Pressure released to $memory_pressure"
 
 			until ! is_device_sleeping; do
 				sleep 1
@@ -311,16 +327,18 @@ fmiop() {
 				zram_id=$(add_zram)
 				resize_zram $TOTALMEM $zram_id
 			elif kill -0 $swapoff_pid; then
+				loger "swapoff_pid exist"
 				if [ $zram_block = "/dev/block/zram1" ]; then
-					$BIN/swapon -p 32767 /dev/block/zram0
+					loger "Turning on zram0"
+					turnon_zram /dev/block/zram0
 				elif [ $zram_block = /dev/block/zram0 ]; then
-					$BIN/swapon -p 32767 /dev/block/zram1
+					loger "Turning on zram1"
+					turnon_zram /dev/block/zram1
 				fi
 			fi
 
 			set +x
 			exec 3>&-
-
 		fi
 		sleep 2
 	done &
