@@ -179,7 +179,7 @@ turnoff_zram() {
 	local zram=$1
 
 	[ -n "$zram" ] && for _ in $(seq 20); do
-		if swapoff "$zram"; then
+		if "$MODPATH/swapoff.sh" "$zram"; then
 			loger "$zram turned off"
 			return 0
 		fi
@@ -235,11 +235,12 @@ get_memory_pressure() {
 }
 
 is_device_sleeping() {
-	dumpsys power | grep 'mWakefulness=' | grep 'Asleep'
+	dumpsys power | grep 'mWakefulness=' | grep 'Asleep' && loger "Device screen is turned off"
+
 }
 
 is_device_dozing() {
-	dumpsys deviceidle get deep | grep IDLE
+	dumpsys deviceidle get deep | grep IDLE && loger "Device is entering doze mode"
 }
 
 apply_lmkd_props() {

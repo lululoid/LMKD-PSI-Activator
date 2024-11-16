@@ -31,6 +31,7 @@ set_permissions() {
 	set_perm_recursive "$MODPATH/fmiop.sh" 0 2000 0755 0755
 	set_perm_recursive "$MODPATH/fmiop_service.sh" 0 2000 0755 0755
 	set_perm_recursive "$MODPATH/log_service.sh" 0 2000 0755 0755
+	set_perm_recursive "$MODPATH/swapoff.sh" 0 2000 0755 0755
 	set_perm_recursive "$MODPATH/sqlite3" 0 2000 0755 0755
 }
 
