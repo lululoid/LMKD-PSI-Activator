@@ -179,7 +179,7 @@ turnoff_zram() {
 	local zram=$1
 
 	[ -n "$zram" ] && for _ in $(seq 20); do
-		if "$MODPATH/swapoff.sh" "$zram"; then
+		if swapoff "$zram"; then
 			loger "$zram turned off"
 			return 0
 		fi
@@ -222,8 +222,6 @@ resize_zram() {
 		fi
 		sleep 1
 	done
-
-	$BIN/swapon -p 32767 /dev/block/zram$zram_id
 }
 
 get_memory_pressure() {
@@ -235,8 +233,7 @@ get_memory_pressure() {
 }
 
 is_device_sleeping() {
-	dumpsys power | grep 'mWakefulness=' | grep 'Asleep' && loger "Device screen is turned off"
-
+	dumpsys power | grep 'mWakefulness=' | grep 'Asleep'
 }
 
 is_device_dozing() {
@@ -277,7 +274,7 @@ turnon_zram() {
 }
 
 fmiop() {
-	local new_pid zram_block swapoff_pid memory_pressure
+	local new_pid zram_block memory_pressure
 
 	set +x
 	exec 3>&-
@@ -296,24 +293,18 @@ fmiop() {
 		memory_pressure=$(get_memory_pressure)
 		sed -i "s/\(Memory pressure.*= \)[0-9]*/\1$memory_pressure/" $MODPATH/module.prop
 
-		if is_device_dozing && ! kill -0 $swapoff_pid; then
-			until [ $memory_pressure -gt 65 ] || ! is_device_sleeping; do
-				exec 3>&1
-				set -x
+		if is_device_dozing; then
+			exec 3>&1
+			set -x
 
+			zram_block=$(awk '/zram/ {print $1}' /proc/swaps)
+			turnoff_zram $zram_block && {
 				memory_pressure=$(get_memory_pressure)
-				if ! kill -0 $swapoff_pid; then
-					loger "No swapoff_pid. Turning off zram..."
-					zram_block=$(awk '/zram/ {print $1}' /proc/swaps)
-					turnoff_zram $zram_block &
-					swapoff_pid=$!
-				fi
+				loger "Pressure released to $memory_pressure, waiting for device to awake"
+			}
 
-				set +x
-				exec 3>&-
-			done
-
-			loger "Pressure released to $memory_pressure"
+			set +x
+			exec 3>&-
 
 			until ! is_device_sleeping; do
 				sleep 1
@@ -322,21 +313,7 @@ fmiop() {
 			exec 3>&1
 			set -x
 
-			if ! kill -0 $swapoff_pid; then
-				$BIN/swapon -p 32767 $zram_block
-			elif ! [ -e /dev/block/zram1 ]; then
-				zram_id=$(add_zram)
-				resize_zram $TOTALMEM $zram_id
-			elif kill -0 $swapoff_pid; then
-				loger "swapoff_pid exist"
-				if [ $zram_block = "/dev/block/zram1" ]; then
-					loger "Turning on zram0"
-					turnon_zram /dev/block/zram0
-				elif [ $zram_block = /dev/block/zram0 ]; then
-					loger "Turning on zram1"
-					turnon_zram /dev/block/zram1
-				fi
-			fi
+			turnon_zram $zram_block
 
 			set +x
 			exec 3>&-

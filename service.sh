@@ -27,6 +27,7 @@ turnoff_zram /dev/block/zram0
 remove_zram 0 && loger "/dev/block/zram0 removed"
 zram_id=$(add_zram)
 resize_zram $TOTALMEM $zram_id
+turnon_zram /dev/block/zram0
 
 $BIN/swapon -p 32766 $swap_filename && loger "$swap_filename turned on"
 
