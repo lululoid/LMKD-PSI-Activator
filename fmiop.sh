@@ -4,6 +4,7 @@ TAG=fmiop
 LOG_FOLDER=$NVBASE/$TAG
 LOGFILE=$LOG_FOLDER/$TAG.log
 PID_DB=$LOG_FOLDER/$TAG.pids
+FOGIMP_PROPS=$NVBASE/modules/fogimp/system.prop
 
 export TAG LOGFILE LOG_FOLDER
 alias uprint="ui_print"
@@ -242,7 +243,7 @@ is_device_dozing() {
 
 apply_lmkd_props() {
 	resetprop -f $MODPATH/system.prop
-	resetprop -f $MODPATH/../fogimp/system.prop
+	resetprop -f $FOGIMP_PROPS
 }
 
 adjust_minfree_pairs_by_percentage() {
@@ -290,34 +291,18 @@ fmiop() {
 			exec 3>&-
 		}
 
+		# Read each line, extract the key, and iterate
+		while IFS='=' read -r key value; do
+			# Skip empty lines and comments
+			[ -z "$key" ] || [ "${key#'#'}" != "$key" ] && continue
+			if ! resetprop $key >/dev/null; then
+				resetprop $key $value && loger "$key=$value reapplied"
+			fi
+
+		done <"$FOGIMP_PROPS"
+
 		memory_pressure=$(get_memory_pressure)
 		sed -i "s/\(Memory pressure.*= \)[0-9]*/\1$memory_pressure/" $MODPATH/module.prop
-
-		if is_device_dozing; then
-			exec 3>&1
-			set -x
-
-			zram_block=$(awk '/zram/ {print $1}' /proc/swaps)
-			turnoff_zram $zram_block && {
-				memory_pressure=$(get_memory_pressure)
-				loger "Pressure released to $memory_pressure, waiting for device to awake"
-			}
-
-			set +x
-			exec 3>&-
-
-			until ! is_device_sleeping; do
-				sleep 1
-			done
-
-			exec 3>&1
-			set -x
-
-			turnon_zram $zram_block
-
-			set +x
-			exec 3>&-
-		fi
 		sleep 2
 	done &
 

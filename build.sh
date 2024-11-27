@@ -53,7 +53,6 @@ package_name="packages/$module_name-v${version}_$versionCode-beta.zip"
 	module.prop \
 	cleaner.zip \
 	./*service.sh \
-	swapoff.sh \
 	$fogimp_pkg
 
-check_root "You need ROOT to install this module" || su -c "magisk --install-module $package_name"
+# check_root "You need ROOT to install this module" || su -c "magisk --install-module $package_name"

@@ -211,7 +211,7 @@ EOF
 
 			# Add workaround to keep MIUI from re-adding sys.lmk.minfree_levels property back
 			$MODPATH/fmiop_service.sh
-			uprint "
+			kill -0 "$(read_pid fmiop.lmkd_loger.pid)" && uprint "
 ⟩ LMKD PSI service keeper started
 "
 		else
