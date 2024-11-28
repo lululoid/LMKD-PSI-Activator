@@ -275,10 +275,18 @@ turnon_zram() {
 }
 
 fmiop() {
-	local new_pid zram_block memory_pressure
+	local new_pid zram_block memory_pressure props
 
 	set +x
 	exec 3>&-
+
+	# Saving props as variables
+	[ -f $FOGIMP_PROPS ] && while IFS='=' read -r key value; do
+		[ -z "$key" ] || [ -z "$value" ] || [ "${key#'#'}" != "$key" ] && continue
+		props="$props $key"
+		key=$(echo "$key" | tr '.' '_') # Replace dots with underscores to make valid variable names
+		eval "$key=\"$value\""
+	done <$FOGIMP_PROPS
 
 	while true; do
 		rm_prop sys.lmk.minfree_levels && {
@@ -291,15 +299,20 @@ fmiop() {
 			exec 3>&-
 		}
 
-		# Read each line, extract the key, and iterate
-		while IFS='=' read -r key value; do
-			# Skip empty lines and comments
-			[ -z "$key" ] || [ "${key#'#'}" != "$key" ] && continue
-			if ! resetprop $key >/dev/null; then
-				resetprop $key $value && loger "$key=$value reapplied"
-			fi
+		[ -f $FOGIMP_PROPS ] && for prop in $props; do
+			if ! resetprop $prop >/dev/null; then
+				exec 3>&1
+				set -x
 
-		done <"$FOGIMP_PROPS"
+				var=$(echo "$prop" | tr '.' '_')
+				eval value="\$$var" # Dynamically get the value of the variable named by $var
+				resetprop "$prop" "$value" && loger "$prop=$value reapplied"
+				relmkd
+
+				set +x
+				exec 3>&-
+			fi
+		done
 
 		memory_pressure=$(get_memory_pressure)
 		sed -i "s/\(Memory pressure.*= \)[0-9]*/\1$memory_pressure/" $MODPATH/module.prop

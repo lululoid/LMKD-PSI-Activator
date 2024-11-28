@@ -162,11 +162,11 @@ apply_touch_issue_workaround() {
 	# Add workaround for MIUI touch issue when LMKD is in PSI mode
 	# because despite its beauty MIUI is having weird issues
 	cat <<EOF
-⟩ Do you want to apply workaround for MIUI ghost 
-  touch bug? If you ever have one I recommend to 
-  choose yes.
-  Turn off screen and turn it on again if problem
-  persist.
+⟩ Do you want some smoothie🍹? Due to unknown
+  reason. LMKD will thrash so much on your device 
+  until your phone goes slow. This is simple work- 
+  around to make your phone stay as smooth as 
+  possible.
 
   Press VOLUME + to apply workaround
   Press VOLUME - to skip
@@ -175,7 +175,7 @@ EOF
 
 	while true; do
 		if get_key_event 'KEY_VOLUMEUP *DOWN'; then
-			echo "  › Installing extra module for MIUI
+			echo "  › Installing fogimp module 🍹
 "
 			magisk --install-module $MODPATH/packages/fogim*
 			echo ""
@@ -203,8 +203,8 @@ to Android 10+"
 
 EOF
 
+		apply_touch_issue_workaround
 		if [ -n "$miui_v_code" ]; then
-			apply_touch_issue_workaround
 			echo "⟩ Applying lowmemorykiller properties
 	"
 			lmkd_apply

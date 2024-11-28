@@ -1,5 +1,5 @@
 # LMKD PSI Activator
-Magisk module to fix RAM management by activating psi mode in LMKD which is more efficient, faster and more stable than traditional minfree_levels most ROMs used
+Magisk module to fix RAM management by activating psi mode in LMKD which is more efficient, faster and more stable than traditional minfree_levels most ROMs using
 > [!CAUTION]
 > For MIUI user this module is gonna make your phone more aggressive and killing app like VPN more often, please install [NoSwipeToKill](https://github.com/dantmnf/NoSwipeToKill) lsposed module by [dantmnf](https://github.com/dantmnf) to prevent this
 
