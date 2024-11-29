@@ -195,6 +195,7 @@ add_zram() {
 	zram_id=$(cat /sys/class/zram-control/hot_add)
 	if [ -n "$zram_id" ]; then
 		loger "zram$zram_id created" && echo "$zram_id"
+		return 0
 	fi
 	return 1
 }
@@ -274,6 +275,24 @@ turnon_zram() {
 	fi
 }
 
+update_pressure_report() {
+	memory_pressure=$(get_memory_pressure)
+	# Create a temporary file to safely update the file
+	tmp_file=$(mktemp -p /data/local/tmp/)
+
+	# Use sed to perform the substitution and save the output to the temporary file
+	sed "s/\(Memory pressure.*= \)[0-9]*/\1$memory_pressure/" "$MODPATH/module.prop" >"$tmp_file"
+
+	# If sed was successful, move the temporary file to replace the original file
+	if [ $? -eq 0 ]; then
+		mv "$tmp_file" "$MODPATH/module.prop"
+	else
+		loger "Failed to update report."
+		rm "$tmp_file"
+		return 1
+	fi
+}
+
 fmiop() {
 	local new_pid zram_block memory_pressure props
 
@@ -314,8 +333,7 @@ fmiop() {
 			fi
 		done
 
-		memory_pressure=$(get_memory_pressure)
-		sed -i "s/\(Memory pressure.*= \)[0-9]*/\1$memory_pressure/" $MODPATH/module.prop
+		update_pressure_report
 		sleep 2
 	done &
 
