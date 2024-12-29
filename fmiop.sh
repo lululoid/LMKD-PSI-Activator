@@ -9,6 +9,7 @@ FOGIMP_PROPS=$NVBASE/modules/fogimp/system.prop
 export TAG LOGFILE LOG_FOLDER
 alias uprint="ui_print"
 alias resetprop="resetprop -v"
+alias sed='$MODPATH/sed'
 
 loger() {
 	local log=$1
@@ -277,20 +278,11 @@ turnon_zram() {
 
 update_pressure_report() {
 	memory_pressure=$(get_memory_pressure)
-	# Create a temporary file to safely update the file
-	tmp_file=$(mktemp -p /data/local/tmp/)
+	module_prop="$MODPATH/module.prop"
+	tmp_file=$(mktemp -p /data/local/tmp)
+	content=$(cat $module_prop)
 
-	# Use sed to perform the substitution and save the output to the temporary file
-	sed "s/\(Memory pressure.*= \)[0-9]*/\1$memory_pressure/" "$MODPATH/module.prop" >"$tmp_file"
-
-	# If sed was successful, move the temporary file to replace the original file
-	if [ $? -eq 0 ]; then
-		mv "$tmp_file" "$MODPATH/module.prop"
-	else
-		loger "Failed to update report."
-		rm "$tmp_file"
-		return 1
-	fi
+	echo "$content" | sed -i "s/\(Memory pressure.*= \)-\?[0-9]*/\1$memory_pressure/" >$tmp_file && mv $tmp_file $module_prop
 }
 
 fmiop() {
