@@ -282,7 +282,7 @@ update_pressure_report() {
 	tmp_file=$(mktemp -p /data/local/tmp)
 	content=$(cat $module_prop)
 
-	echo "$content" | sed -i "s/\(Memory pressure.*= \)-\?[0-9]*/\1$memory_pressure/" >$tmp_file && mv $tmp_file $module_prop
+	echo "$content" | sed "s/\(Memory pressure.*= \)-\?[0-9]*/\1$memory_pressure/" >$tmp_file && mv $tmp_file $module_prop
 }
 
 fmiop() {
