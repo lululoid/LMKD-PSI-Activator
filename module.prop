@@ -1,6 +1,6 @@
 id=fmiop
 name=LMKD PSI Activator
 version=v1.9-beta
-versionCode=745
+versionCode=751
 author=lululoid
-description=Memory pressure(lower is more pressure) = -1. Fix RAM management by activating psi mode in LMKD which is more efficient, faster and more stable than traditional minfree_levels most ROMs using
+description=Memory pressure(lower is more pressure) = -1. Fix RAM management by activating psi mode in LMKD which is more efficient, faster and more stable than traditional minfree_levels most ROMs use

@@ -229,3 +229,4 @@ EOF
 set_permissions
 setup_swap
 main
+cp $MODPATH/module.prop $LOG_FOLDER

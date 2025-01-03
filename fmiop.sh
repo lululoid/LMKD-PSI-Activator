@@ -279,8 +279,9 @@ turnon_zram() {
 update_pressure_report() {
 	memory_pressure=$(get_memory_pressure)
 	module_prop="$MODPATH/module.prop"
+	prop_bcp="$LOG_FOLDER/module.prop"
 	tmp_file=$(mktemp -p /data/local/tmp)
-	content=$(cat $module_prop)
+	content=$(cat $prop_bcp)
 
 	echo "$content" | sed "s/\(Memory pressure.*= \)-\?[0-9]*/\1$memory_pressure/" >$tmp_file && mv $tmp_file $module_prop
 }
