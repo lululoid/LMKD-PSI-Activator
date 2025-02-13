@@ -340,10 +340,10 @@ adjust_swappiness_dynamic() {
 	new_swappiness=$current_swappiness
 	memory_metric=$memory_some_avg10
 	cpu_metric=$cpu_some_avg10
-	cpu_low_limit=20
+	cpu_low_limit=10
 	cpu_high_limit=50
-	limit=10
-	step=5
+	limit=20
+	step=2
 
 	if [ "$(echo "$cpu_metric < $cpu_high_limit" | bc -l)" -eq 1 ] && [ "$(echo "$cpu_metric > $cpu_low_limit" | bc -l)" -eq 1 ]; then
 		new_swappiness=$((new_swappiness + step))
@@ -402,11 +402,7 @@ fmiop() {
 		done
 
 		update_pressure_report
-		exec 3>&1
-		set -x
 		adjust_swappiness_dynamic
-		set +x
-		exec 3>&-
 		sleep 2
 	done &
 
