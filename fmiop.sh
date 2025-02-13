@@ -286,6 +286,81 @@ update_pressure_report() {
 	echo "$content" | sed "s/\(Memory pressure.*= \)-\?[0-9]*/\1$memory_pressure/" >$tmp_file && mv $tmp_file $module_prop
 }
 
+save_pressures_to_vars() {
+	# Loop over the two pressure levels: "full" and "some"
+	for level in full some; do
+		# Loop over each file in /proc/pressure
+		for file in /proc/pressure/*; do
+			# Remove the prefix (level and a following space) from each line in the file,
+			# and reset the positional parameters to the resulting key=value pairs.
+			set -- $(sed "s/^$level //" "$file")
+
+			# For each key=value pair, extract key and value
+			for pair in "$@"; do
+				key=${pair%%=*}
+				value=${pair#*=}
+
+				# Get the filename (without directory path) as the hardware identifier.
+				hw=$(basename "$file")
+
+				# Create a new variable with the desired prefix and assign it the value.
+				# For example, if hw is "memory", level is "full", key is "avg10" and value "3.41",
+				# this will execute: full_avg10="3.41" (prefixed with the hardware name, e.g., memory_full_avg10).
+				eval "${hw}_${level}_${key}=\"${value}\""
+			done
+		done
+	done
+}
+
+apply_swappiness() {
+	new_swappiness=$1
+
+	# Clamp the new value to the allowed range 0 to 200
+	if [ "$new_swappiness" -gt 200 ]; then
+		new_swappiness=200
+	elif [ "$new_swappiness" -lt 0 ]; then
+		new_swappiness=0
+	fi
+
+	# Write the new swappiness value
+	echo "$new_swappiness" >/proc/sys/vm/swappiness
+
+	# Log the change (corrected the variable name for io_pressure)
+	if [ "$new_swappiness" != "$current_swappiness" ]; then
+		loger "Swappiness adjusted from $current_swappiness to $new_swappiness (cpu_pressure=$cpu_some_avg10, io_pressure=$io_some_avg10)"
+	fi
+}
+
+adjust_swappiness_dynamic() {
+	local current_swappiness new_swappiness step
+
+	save_pressures_to_vars
+	# Read current swappiness (assumed to be an integer)
+	current_swappiness=$(cat /proc/sys/vm/swappiness)
+	new_swappiness=$current_swappiness
+	memory_metric=$memory_some_avg10
+	cpu_metric=$cpu_some_avg10
+	cpu_low_limit=20
+	cpu_high_limit=50
+	limit=10
+	step=5
+
+	if [ "$(echo "$cpu_metric < $cpu_high_limit" | bc -l)" -eq 1 ] && [ "$(echo "$cpu_metric > $cpu_low_limit" | bc -l)" -eq 1 ]; then
+		new_swappiness=$((new_swappiness + step))
+		apply_swappiness $new_swappiness
+	fi
+
+	if [ "$(echo "$cpu_metric > $cpu_high_limit" | bc -l)" -eq 1 ]; then
+		new_swappiness=$((new_swappiness - cpu_high_limit))
+		apply_swappiness $new_swappiness
+	fi
+
+	if [ "$(echo "$memory_metric > $limit" | bc -l)" -eq 1 ]; then
+		new_swappiness=$((new_swappiness - step))
+		apply_swappiness $new_swappiness
+	fi
+}
+
 fmiop() {
 	local new_pid zram_block memory_pressure props
 
@@ -327,6 +402,11 @@ fmiop() {
 		done
 
 		update_pressure_report
+		exec 3>&1
+		set -x
+		adjust_swappiness_dynamic
+		set +x
+		exec 3>&-
 		sleep 2
 	done &
 
