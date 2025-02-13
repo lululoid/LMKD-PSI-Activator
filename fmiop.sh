@@ -343,22 +343,21 @@ adjust_swappiness_dynamic() {
 	cpu_low_limit=10
 	cpu_high_limit=50
 	limit=20
-	step=2
+	step=4
 
 	if [ "$(echo "$cpu_metric < $cpu_high_limit" | bc -l)" -eq 1 ] && [ "$(echo "$cpu_metric > $cpu_low_limit" | bc -l)" -eq 1 ]; then
 		new_swappiness=$((new_swappiness + step))
-		apply_swappiness $new_swappiness
 	fi
 
 	if [ "$(echo "$cpu_metric > $cpu_high_limit" | bc -l)" -eq 1 ]; then
-		new_swappiness=$((new_swappiness - cpu_high_limit))
-		apply_swappiness $new_swappiness
+		new_swappiness=$((new_swappiness - step))
 	fi
 
 	if [ "$(echo "$memory_metric > $limit" | bc -l)" -eq 1 ]; then
 		new_swappiness=$((new_swappiness - step))
-		apply_swappiness $new_swappiness
 	fi
+
+	apply_swappiness $new_swappiness
 }
 
 fmiop() {
