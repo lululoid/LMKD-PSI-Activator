@@ -312,6 +312,29 @@ save_pressures_to_vars() {
 	done
 }
 
+read_pressure() {
+	resource=$1
+	level=$2
+	key=$3
+	file="/proc/pressure/$resource"
+
+	if [ ! -f "$file" ]; then
+		echo "Error: $file not found" >&2
+		return 1
+	fi
+
+	awk -v lvl="$level" -v k="$key" '
+    $1 == lvl {
+        for (i = 2; i <= NF; i++) {
+            split($i, a, "=")
+            if (a[1] == k) {
+                printf "%s", a[2]
+                exit
+            }
+        }
+    }' "$file"
+}
+
 adjust_swappiness_dynamic() {
 	local current_swappiness new_swappiness step memory_metric cpu_metric io_metric
 	local cpu_high_limit mem_high_limit mem_low_limit io_limit
@@ -333,10 +356,9 @@ adjust_swappiness_dynamic() {
 		new_swappiness=$current_swappiness
 
 		# Dynamically update pressure metrics
-		save_pressures_to_vars
-		memory_metric=$memory_some_avg10
-		cpu_metric=$cpu_some_avg10
-		io_metric=$io_some_avg10
+		memory_metric=$(read_pressure memory some avg10)
+		cpu_metric=$(read_pressure cpu some avg10)
+		io_metric=$(read_pressure io some avg10)
 
 		# Check CPU pressure and adjust swappiness
 		# Check memory high-pressure and adjust swappiness
@@ -351,9 +373,7 @@ adjust_swappiness_dynamic() {
 		elif [ "$(echo "$memory_metric > $mem_high_limit" | bc -l)" -eq 1 ]; then
 			new_swappiness=$((new_swappiness - step))
 			loger "Decreased swappiness by $step due to high memory pressure (mem=$memory_metric)"
-		fi
-
-		if [ "$(echo "$memory_metric > $mem_low_limit" | bc -l)" -eq 1 ] && [ "$(echo "$cpu_metric < $cpu_high_limit" | bc -l)" -eq 1 ]; then
+		elif [ "$(echo "$memory_metric > $mem_low_limit" | bc -l)" -eq 1 ] && [ "$(echo "$cpu_metric < $cpu_high_limit" | bc -l)" -eq 1 ]; then
 			new_swappiness=$((new_swappiness + step))
 			loger "Increased swappiness by $step (cpu=$cpu_metric, mem=$memory_metric)"
 		fi
@@ -377,7 +397,7 @@ adjust_swappiness_dynamic() {
 		exec 3>&-
 
 		# Sleep for a short duration before checking again
-		sleep 0.5
+		sleep 1
 	done &
 
 	# Save the process ID for cleanup if needed
