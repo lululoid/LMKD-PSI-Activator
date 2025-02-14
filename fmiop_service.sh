@@ -7,3 +7,4 @@ set -x # Prints commands, prefixing them with a character stored in an environme
 . $MODPATH/fmiop.sh
 
 fmiop
+adjust_swappiness_dynamic

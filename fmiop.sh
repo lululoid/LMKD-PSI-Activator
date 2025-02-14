@@ -312,52 +312,77 @@ save_pressures_to_vars() {
 	done
 }
 
-apply_swappiness() {
-	new_swappiness=$1
-
-	# Clamp the new value to the allowed range 0 to 200
-	if [ "$new_swappiness" -gt 200 ]; then
-		new_swappiness=200
-	elif [ "$new_swappiness" -lt 0 ]; then
-		new_swappiness=0
-	fi
-
-	# Write the new swappiness value
-	echo "$new_swappiness" >/proc/sys/vm/swappiness
-
-	# Log the change (corrected the variable name for io_pressure)
-	if [ "$new_swappiness" != "$current_swappiness" ]; then
-		loger "Swappiness adjusted from $current_swappiness to $new_swappiness (cpu_pressure=$cpu_some_avg10, io_pressure=$io_some_avg10)"
-	fi
-}
-
 adjust_swappiness_dynamic() {
-	local current_swappiness new_swappiness step
+	local current_swappiness new_swappiness step memory_metric cpu_metric io_metric
+	local cpu_high_limit mem_high_limit mem_low_limit io_limit
 
-	save_pressures_to_vars
-	# Read current swappiness (assumed to be an integer)
-	current_swappiness=$(cat /proc/sys/vm/swappiness)
-	new_swappiness=$current_swappiness
-	memory_metric=$memory_some_avg10
-	cpu_metric=$cpu_some_avg10
-	cpu_low_limit=10
-	cpu_high_limit=50
-	limit=20
-	step=4
+	# Define thresholds for pressure metrics
+	cpu_high_limit=70
+	mem_high_limit=10
+	mem_low_limit=5
+	io_limit=10
 
-	if [ "$(echo "$cpu_metric < $cpu_high_limit" | bc -l)" -eq 1 ] && [ "$(echo "$cpu_metric > $cpu_low_limit" | bc -l)" -eq 1 ]; then
-		new_swappiness=$((new_swappiness + step))
-	fi
+	step=2 # Adjustment step for swappiness
 
-	if [ "$(echo "$cpu_metric > $cpu_high_limit" | bc -l)" -eq 1 ]; then
-		new_swappiness=$((new_swappiness - step))
-	fi
+	while true; do
+		exec 3>&1
+		set -x
 
-	if [ "$(echo "$memory_metric > $limit" | bc -l)" -eq 1 ]; then
-		new_swappiness=$((new_swappiness - step))
-	fi
+		# Read current swappiness (assumed to be an integer)
+		current_swappiness=$(cat /proc/sys/vm/swappiness)
+		new_swappiness=$current_swappiness
 
-	apply_swappiness $new_swappiness
+		# Dynamically update pressure metrics
+		save_pressures_to_vars
+		memory_metric=$memory_some_avg10
+		cpu_metric=$cpu_some_avg10
+		io_metric=$io_some_avg10
+
+		# Check CPU pressure and adjust swappiness
+		# Check memory high-pressure and adjust swappiness
+		# Check IO pressure and adjust swappiness
+		# Check memory pressure and adjust swappiness
+		if [ "$(echo "$io_metric > $io_limit" | bc -l)" -eq 1 ]; then
+			new_swappiness=$((new_swappiness - step))
+			loger "Decreased swappiness by $step due to IO pressure (io=$io_metric)"
+		elif [ "$(echo "$cpu_metric > $cpu_high_limit" | bc -l)" -eq 1 ]; then
+			new_swappiness=$((new_swappiness - step))
+			loger "Decreased swappiness by $step due to high CPU pressure (cpu=$cpu_metric)"
+		elif [ "$(echo "$memory_metric > $mem_high_limit" | bc -l)" -eq 1 ]; then
+			new_swappiness=$((new_swappiness - step))
+			loger "Decreased swappiness by $step due to high memory pressure (mem=$memory_metric)"
+		fi
+
+		if [ "$(echo "$memory_metric > $mem_low_limit" | bc -l)" -eq 1 ] && [ "$(echo "$cpu_metric < $cpu_high_limit" | bc -l)" -eq 1 ]; then
+			new_swappiness=$((new_swappiness + step))
+			loger "Increased swappiness by $step (cpu=$cpu_metric, mem=$memory_metric)"
+		fi
+
+		# Apply the new swappiness value
+		# Clamp the new value to the allowed range 0 to 200
+		if [ "$new_swappiness" -gt 200 ]; then
+			new_swappiness=200
+		elif [ "$new_swappiness" -lt 0 ]; then
+			new_swappiness=0
+		fi
+
+		# Log the change (only log if there is a change in swappiness)
+		if [ "$new_swappiness" != "$current_swappiness" ]; then
+			# Write the new swappiness value
+			echo "$new_swappiness" >/proc/sys/vm/swappiness
+			loger "Swappiness adjusted from $current_swappiness to $new_swappiness (cpu_pressure=$cpu_some_avg10, io_pressure=$io_some_avg10, memory_pressure=$memory_some_avg10)"
+		fi
+
+		set +x
+		exec 3>&-
+
+		# Sleep for a short duration before checking again
+		sleep 0.5
+	done &
+
+	# Save the process ID for cleanup if needed
+	new_pid=$!
+	save_pid "fmiop.dynswap.pid" "$new_pid"
 }
 
 fmiop() {
@@ -401,7 +426,6 @@ fmiop() {
 		done
 
 		update_pressure_report
-		adjust_swappiness_dynamic
 		sleep 2
 	done &
 
