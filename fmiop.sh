@@ -340,25 +340,27 @@ adjust_swappiness_dynamic() {
 	local cpu_high_limit mem_high_limit mem_low_limit io_limit
 
 	# Define thresholds for pressure metrics
-	cpu_high_limit=70
-	mem_high_limit=10
-	mem_low_limit=5
-	io_limit=10
+	cpu_high_limit=30
+	mem_high_limit=15 # Adjusted from 23
+	io_limit=30       # Adjusted from 23
+	step=2            # Can be increased to 6 for low-RAM devices
 
-	step=2 # Adjustment step for swappiness
+	# Swappiness clamp limit
+	swap_max_limit=110
+	swap_min_limit=40 # Adjusted from 30
 
 	while true; do
-		exec 3>&1
-		set -x
+		# exec 3>&1
+		# set -x
 
 		# Read current swappiness (assumed to be an integer)
 		current_swappiness=$(cat /proc/sys/vm/swappiness)
 		new_swappiness=$current_swappiness
 
 		# Dynamically update pressure metrics
-		memory_metric=$(read_pressure memory some avg10)
-		cpu_metric=$(read_pressure cpu some avg10)
-		io_metric=$(read_pressure io some avg10)
+		memory_metric=$(read_pressure memory some avg60)
+		cpu_metric=$(read_pressure cpu some avg60)
+		io_metric=$(read_pressure io some avg60)
 
 		# Check CPU pressure and adjust swappiness
 		# Check memory high-pressure and adjust swappiness
@@ -366,35 +368,43 @@ adjust_swappiness_dynamic() {
 		# Check memory pressure and adjust swappiness
 		if [ "$(echo "$io_metric > $io_limit" | bc -l)" -eq 1 ]; then
 			new_swappiness=$((new_swappiness - step))
-			loger "Decreased swappiness by $step due to IO pressure (io=$io_metric)"
+			if [ $new_swappiness -lt $swap_max_limit ] && [ $new_swappiness -gt $swap_min_limit ]; then
+				loger "Decreased swappiness by $step due to IO pressure (io=$io_metric)"
+			fi
 		elif [ "$(echo "$cpu_metric > $cpu_high_limit" | bc -l)" -eq 1 ]; then
 			new_swappiness=$((new_swappiness - step))
-			loger "Decreased swappiness by $step due to high CPU pressure (cpu=$cpu_metric)"
+			if [ $new_swappiness -lt $swap_max_limit ] && [ $new_swappiness -gt $swap_min_limit ]; then
+				loger "Decreased swappiness by $step due to high CPU pressure (cpu=$cpu_metric)"
+			fi
 		elif [ "$(echo "$memory_metric > $mem_high_limit" | bc -l)" -eq 1 ]; then
 			new_swappiness=$((new_swappiness - step))
-			loger "Decreased swappiness by $step due to high memory pressure (mem=$memory_metric)"
-		elif [ "$(echo "$memory_metric > $mem_low_limit" | bc -l)" -eq 1 ] && [ "$(echo "$cpu_metric < $cpu_high_limit" | bc -l)" -eq 1 ]; then
+			if [ $new_swappiness -lt $swap_max_limit ] && [ $new_swappiness -gt $swap_min_limit ]; then
+				loger "Decreased swappiness by $step due to high memory pressure (mem=$memory_metric)"
+			fi
+		else
 			new_swappiness=$((new_swappiness + step))
-			loger "Increased swappiness by $step (cpu=$cpu_metric, mem=$memory_metric)"
+			if [ $new_swappiness -lt $swap_max_limit ] && [ $new_swappiness -gt $swap_min_limit ]; then
+				loger "Increased swappiness by $step (cpu=$cpu_metric, mem=$memory_metric)"
+			fi
 		fi
 
 		# Apply the new swappiness value
 		# Clamp the new value to the allowed range 0 to 200
-		if [ "$new_swappiness" -gt 200 ]; then
-			new_swappiness=200
-		elif [ "$new_swappiness" -lt 0 ]; then
-			new_swappiness=0
+		if [ "$new_swappiness" -gt $swap_max_limit ]; then
+			new_swappiness=$swap_max_limit
+		elif [ "$new_swappiness" -lt $swap_min_limit ]; then
+			new_swappiness=$swap_min_limit
 		fi
 
 		# Log the change (only log if there is a change in swappiness)
 		if [ "$new_swappiness" != "$current_swappiness" ]; then
 			# Write the new swappiness value
 			echo "$new_swappiness" >/proc/sys/vm/swappiness
-			loger "Swappiness adjusted from $current_swappiness to $new_swappiness (cpu_pressure=$cpu_some_avg10, io_pressure=$io_some_avg10, memory_pressure=$memory_some_avg10)"
+			loger "Swappiness adjusted from $current_swappiness to $new_swappiness (cpu_pressure=$cpu_metric, io_pressure=$io_metric, memory_pressure=$memory_metric)"
 		fi
 
-		set +x
-		exec 3>&-
+		# set +x
+		# exec 3>&-
 
 		# Sleep for a short duration before checking again
 		sleep 1
