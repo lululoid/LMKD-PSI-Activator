@@ -5,6 +5,9 @@ LOG_FOLDER=$NVBASE/$TAG
 LOGFILE=$LOG_FOLDER/$TAG.log
 PID_DB=$LOG_FOLDER/$TAG.pids
 FOGIMP_PROPS=$NVBASE/modules/fogimp/system.prop
+SWAP_FILENAME=$NVBASE/fmiop_swap
+ZRAM_PRIORITY=$(grep "/dev/block/zram0" /proc/swaps | awk '{print $5}')
+SWAP_PRIORITY=$ZRAM_PRIORITY
 
 export TAG LOGFILE LOG_FOLDER
 alias uprint="ui_print"
@@ -335,9 +338,118 @@ read_pressure() {
     }' "$file"
 }
 
+dynamic_swapon() {
+	# POSIX-compliant script for dynamic swap activation
+	# Directory where swap files are stored
+	SWAP_DIR="$NVBASE"
+	SWAP_PATTERN="$SWAP_FILENAME*"
+
+	# Get a sorted list of available swap files
+	available_swaps=$(ls $SWAP_PATTERN 2>/dev/null | sort)
+
+	if [ -z "$available_swaps" ]; then
+		echo "No swap files available in $SWAP_DIR."
+		return 0
+	fi
+
+	# Get active swap files from /proc/swaps (skip header line)
+	active_swaps=$(awk 'NR>2 {print $1}' /proc/swaps)
+
+	# Function to check if a given file is active
+	is_active() {
+		file=$1
+		echo "$active_swaps" | grep -q "^$file\$"
+	}
+
+	# If no swap file is active, activate the first available swap file.
+	active_found=0
+	for swap in $available_swaps; do
+		if is_active "$swap"; then
+			active_found=1
+			break
+		fi
+	done
+
+	if [ "$active_found" -eq 0 ]; then
+		first_swap=$(echo "$available_swaps" | head -n 1)
+		loger "No active swap found. Activating swap file: $first_swap"
+		swapon -p $SWAP_PRIORITY $first_swap
+		SWAP_PRIORITY=$((SWAP_PRIORITY - 1))
+		return 0
+	fi
+
+	# Identify the last active swap file (by sorted order) among available swaps.
+	last_active_swap=""
+	for swap in $available_swaps; do
+		if is_active "$swap"; then
+			last_active_swap=$swap
+		fi
+	done
+
+	if [ -z "$last_active_swap" ]; then
+		echo "No active swap file found (unexpected error)."
+		return 1
+	fi
+
+	# Get the swap file's size and used values from /proc/swaps.
+	swap_line=$(grep "^$last_active_swap " /proc/swaps)
+	# The fields in /proc/swaps are: Filename, Type, Size, Used, Priority.
+	size=$(echo "$swap_line" | awk '{print $3}')
+	used=$(echo "$swap_line" | awk '{print $4}')
+
+	# Calculate the usage percentage.
+	usage_percent=$((used * 100 / size))
+	loger "Swap file $last_active_swap usage: ${usage_percent}%"
+
+	# If usage is 90% or more, look for the next available (inactive) swap file and activate it.
+	if [ "$usage_percent" -ge 90 ]; then
+		next_swap=""
+		for swap in $available_swaps; do
+			if ! is_active "$swap"; then
+				next_swap=$swap
+				break
+			fi
+		done
+		if [ -n "$next_swap" ]; then
+			loger "Usage is ${usage_percent}%. Activating next swap file: $next_swap"
+			swapon -p $ZRAM_PRIORITY "$next_swap"
+
+			SWAP_PRIORITY=$((SWAP_PRIORITY - 1))
+		else
+			loger "No additional swap file available to activate."
+		fi
+	else
+		loger "Swap usage is below threshold. No new swap file activated."
+	fi
+}
+
+deactivate_swap_low_usage() {
+	swap_logging_breaker=true
+	# Loop over active swap files (ignoring the header line in /proc/swaps)
+	awk 'NR > 2 {print $1}' /proc/swaps | while read -r swap_file; do
+		# Get the corresponding line from /proc/swaps
+		swap_line=$(grep "^$swap_file " /proc/swaps)
+		# The fields are: Filename, Type, Size, Used, Priority.
+		size=$(echo "$swap_line" | awk '{print $3}')
+		used=$(echo "$swap_line" | awk '{print $4}')
+		# Calculate usage percentage (using integer arithmetic)
+		usage_percent=$((used * 100 / size))
+		if [ "$usage_percent" -lt 20 ]; then
+			loger "Deactivating swap file $swap_file (usage: ${usage_percent}%)"
+			swapoff $swap_file
+
+			SWAP_PRIORITY=$((SWAP_PRIORITY + 1))
+			swap_logging_breaker=false
+		elif ! $swap_logging_breaker; then
+			loger "Swap file $swap_file usage ($usage_percent%) is above threshold; keeping it active."
+		fi
+	done
+}
+
 adjust_swappiness_dynamic() {
 	local current_swappiness new_swappiness step memory_metric cpu_metric io_metric
-	local cpu_high_limit mem_high_limit mem_low_limit io_limit
+	local cpu_high_limit mem_high_limit io_limit
+	local dyn_sw=true
 
 	# Define thresholds for pressure metrics
 	cpu_high_limit=30
@@ -350,8 +462,8 @@ adjust_swappiness_dynamic() {
 	swap_min_limit=40 # Adjusted from 30
 
 	while true; do
-		# exec 3>&1
-		# set -x
+		exec 3>&1
+		set -x
 
 		# Read current swappiness (assumed to be an integer)
 		current_swappiness=$(cat /proc/sys/vm/swappiness)
@@ -368,21 +480,33 @@ adjust_swappiness_dynamic() {
 		# Check memory pressure and adjust swappiness
 		if [ "$(echo "$io_metric > $io_limit" | bc -l)" -eq 1 ]; then
 			new_swappiness=$((new_swappiness - step))
+
+			# Initiate swap activation
+			dyn_sw=true
 			if [ $new_swappiness -lt $swap_max_limit ] && [ $new_swappiness -gt $swap_min_limit ]; then
 				loger "Decreased swappiness by $step due to IO pressure (io=$io_metric)"
 			fi
 		elif [ "$(echo "$cpu_metric > $cpu_high_limit" | bc -l)" -eq 1 ]; then
 			new_swappiness=$((new_swappiness - step))
+
+			# Initiate swap activation
+			dyn_sw=true
 			if [ $new_swappiness -lt $swap_max_limit ] && [ $new_swappiness -gt $swap_min_limit ]; then
 				loger "Decreased swappiness by $step due to high CPU pressure (cpu=$cpu_metric)"
 			fi
 		elif [ "$(echo "$memory_metric > $mem_high_limit" | bc -l)" -eq 1 ]; then
 			new_swappiness=$((new_swappiness - step))
+
+			# Initiate swap activation
+			dyn_sw=true
 			if [ $new_swappiness -lt $swap_max_limit ] && [ $new_swappiness -gt $swap_min_limit ]; then
 				loger "Decreased swappiness by $step due to high memory pressure (mem=$memory_metric)"
 			fi
 		else
 			new_swappiness=$((new_swappiness + step))
+
+			deactivate_swap_low_usage
+			swap_logging_breaker=true
 			if [ $new_swappiness -lt $swap_max_limit ] && [ $new_swappiness -gt $swap_min_limit ]; then
 				loger "Increased swappiness by $step (cpu=$cpu_metric, mem=$memory_metric)"
 			fi
@@ -403,8 +527,13 @@ adjust_swappiness_dynamic() {
 			loger "Swappiness adjusted from $current_swappiness to $new_swappiness (cpu_pressure=$cpu_metric, io_pressure=$io_metric, memory_pressure=$memory_metric)"
 		fi
 
-		# set +x
-		# exec 3>&-
+		if $dyn_sw; then
+			dynamic_swapon
+			dyn_sw=false
+		fi
+
+		set +x
+		exec 3>&-
 
 		# Sleep for a short duration before checking again
 		sleep 1
