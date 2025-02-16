@@ -13,7 +13,6 @@ echo "
 ⟩ $(date -Is)" >>$LOG
 
 TOTALMEM=$($BIN/free | awk '/^Mem:/ {print $2}')
-swap_filename=$NVBASE/fmiop_swap
 zram_size=$(awk -v size="$TOTALMEM" \
 	'BEGIN { printf "%.0f\n", size * 0.65 }')
 CPU_CORES_COUNT=$(grep -c ^processor /proc/cpuinfo)
@@ -28,8 +27,6 @@ remove_zram 0 && loger "/dev/block/zram0 removed"
 zram_id=$(add_zram)
 resize_zram $TOTALMEM $zram_id
 turnon_zram /dev/block/zram0
-
-$BIN/swapon -p 32766 $swap_filename && loger "$swap_filename turned on"
 
 until [ $(resetprop sys.boot_completed) -eq 1 ]; do
 	sleep 5
