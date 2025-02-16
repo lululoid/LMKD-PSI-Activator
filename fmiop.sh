@@ -6,8 +6,7 @@ LOGFILE=$LOG_FOLDER/$TAG.log
 PID_DB=$LOG_FOLDER/$TAG.pids
 FOGIMP_PROPS=$NVBASE/modules/fogimp/system.prop
 SWAP_FILENAME=$NVBASE/fmiop_swap
-ZRAM_PRIORITY=$(tail -n1 /proc/swaps | awk '{print $5}')
-CURRENT_ZRAM_PRIORITY=$ZRAM_PRIORITY
+ZRAM_PRIORITY=32767
 SWAP_TIME=false
 
 export TAG LOGFILE LOG_FOLDER
@@ -338,6 +337,14 @@ read_pressure() {
     }' "$file"
 }
 
+get_lst_zpriority() {
+	awk '/zram/ {print $5}' /proc/swaps | tail -n1
+}
+
+get_lst_spriority() {
+	awk '/file/ {print $5}' /proc/swaps | tail -n1
+}
+
 dynamic_zram() {
 	# POSIX-compliant script for dynamic zram activation
 	# Directory where zram partitions are stored
@@ -373,7 +380,7 @@ dynamic_zram() {
 	if [ "$active_found" -eq 0 ]; then
 		first_zram=$(echo "$available_zrams" | head -n 1)
 		loger "No active zram found. Activating zram partition: $first_zram"
-		swapon -p $CURRENT_ZRAM_PRIORITY $first_zram && CURRENT_ZRAM_PRIORITY=$((CURRENT_ZRAM_PRIORITY - 1))
+		swapon -p $ZRAM_PRIORITY $first_zram
 		return 0
 	fi
 
@@ -401,7 +408,7 @@ dynamic_zram() {
 	loger "zram partition $last_active_zram usage: ${usage_percent}%"
 
 	# If usage is 90% or more, look for the next available (inactive) zram partition and activate it.
-	if [ "$usage_percent" -ge 75 ]; then
+	if [ "$usage_percent" -ge 70 ]; then
 		next_zram=""
 		for zram in $available_zrams; do
 			if ! is_active "$zram"; then
@@ -411,11 +418,12 @@ dynamic_zram() {
 		done
 		if [ -n "$next_zram" ]; then
 			loger "Usage is ${usage_percent}%. Activating next zram partition: $next_zram"
-			swapon -p $CURRENT_ZRAM_PRIORITY "$next_zram" && CURRENT_ZRAM_PRIORITY=$((CURRENT_ZRAM_PRIORITY - 1))
+			LAST_ZPRIORITY=$(get_lst_zpriority)
+			swapon -p $((LAST_ZPRIORITY - 1)) "$next_zram"
 		else
 			loger "No additional zram partition available to activate."
 			SWAP_TIME=true
-			SWAP_PRIORITY=$CURRENT_ZRAM_PRIORITY
+			SWAP_PRIORITY=$((LAST_ZPRIORITY - 1))
 		fi
 	else
 		loger "zram usage is below threshold. No new zram partition activated."
@@ -435,7 +443,7 @@ deactivate_zram_low_usage() {
 		usage_percent=$((used * 100 / size))
 		if [ "$usage_percent" -lt 10 ]; then
 			loger "Deactivating zram file $zram_file (usage: ${usage_percent}%)"
-			swapoff $zram_file && CURRENT_ZRAM_PRIORITY=$((CURRENT_ZRAM_PRIORITY + 1))
+			swapoff $zram_file
 			zram_logging_breaker=false
 		elif ! $zram_logging_breaker; then
 			loger "zram file $zram_file usage ($usage_percent%) is above threshold; keeping it active."
@@ -478,7 +486,7 @@ dynamic_swapon() {
 	if [ "$active_found" -eq 0 ]; then
 		first_swap=$(echo "$available_swaps" | head -n 1)
 		loger "No active swap found. Activating swap file: $first_swap"
-		swapon -p $SWAP_PRIORITY $first_swap && SWAP_PRIORITY=$((SWAP_PRIORITY - 1))
+		swapon -p $SWAP_PRIORITY $first_swap
 		return 0
 	fi
 
@@ -516,7 +524,8 @@ dynamic_swapon() {
 		done
 		if [ -n "$next_swap" ]; then
 			loger "Usage is ${usage_percent}%. Activating next swap file: $next_swap"
-			swapon -p $SWAP_PRIORITY "$next_swap" && SWAP_PRIORITY=$((SWAP_PRIORITY - 1))
+			LAST_SPRIORITY=$(get_lst_spriority)
+			swapon -p $((LAST_SPRIORITY - 1)) "$next_swap"
 		else
 			loger "No additional swap file available to activate."
 		fi
@@ -538,7 +547,7 @@ deactivate_swap_low_usage() {
 		usage_percent=$((used * 100 / size))
 		if [ "$usage_percent" -lt 25 ]; then
 			loger "Deactivating swap file $swap_file (usage: ${usage_percent}%)"
-			swapoff $swap_file && SWAP_PRIORITY=$((SWAP_PRIORITY + 1))
+			swapoff $swap_file
 			swap_logging_breaker=false
 		elif ! $swap_logging_breaker; then
 			loger "Swap file $swap_file usage ($usage_percent%) is above threshold; keeping it active."
@@ -558,8 +567,8 @@ adjust_swappiness_dynamic() {
 	step=2            # Can be increased to 6 for low-RAM devices
 
 	# Swappiness clamp limit
-	swap_max_limit=110
-	swap_min_limit=75 # Adjusted from 30
+	swap_max_limit=120
+	swap_min_limit=50 # Adjusted from 30
 
 	while true; do
 		exec 3>&1
@@ -645,7 +654,7 @@ adjust_swappiness_dynamic() {
 		exec 3>&-
 
 		# Sleep for a short duration before checking again
-		sleep 0.5
+		sleep 0.25
 	done &
 
 	# Save the process ID for cleanup if needed
