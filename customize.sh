@@ -94,6 +94,7 @@ setup_swap_size() {
 	local totalmem_gb=$(((totalmem / 1024 / 1024) + 1))
 	local count=0
 	local swap_in_gb=0
+	hundred_mb=$((one_gb / 10))
 	swap_size=0
 
 	uprint "
@@ -132,7 +133,7 @@ setup_swap() {
 	swap_filename=$NVBASE/fmiop_swap
 	free_space=$(df /data | sed -n '2p' | sed 's/[^0-9 ]*//g' | sed ':a;N;$!ba;s/\n/ /g' | awk '{print $4}')
 
-	if [ ! -f "$swap_filename" ]; then
+	if [ ! -f "$swap_filename.1" ]; then
 		setup_swap_size
 		if [ "$free_space" -ge "$swap_size" ] && [ "$swap_size" != 0 ]; then
 			uprint "
@@ -140,12 +141,10 @@ setup_swap() {
   $((free_space / 1024))MB available. $((swap_size / 1024))MB needed
 	"
 			zram_priority=$(grep "/dev/block/zram0" /proc/swaps | awk '{print $5}')
-			make_swap "$swap_size" "$swap_filename" && if [[ $zram_priority -gt 0 ]]; then
-				swap_priority=$((zram_priority - 1))
-				swapon -p $swap_priority "$swap_filename"
-			else
-				swapon "$swap_filename"
-			fi
+			swap_count=$((swap_size / hundred_mb))
+			for num in $(seq $swap_count); do
+				make_swap "$hundred_mb" "$swap_filename.$num"
+			done
 		elif [ $swap_size -eq 0 ]; then
 			:
 		else
