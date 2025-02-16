@@ -7,7 +7,7 @@ PID_DB=$LOG_FOLDER/$TAG.pids
 FOGIMP_PROPS=$NVBASE/modules/fogimp/system.prop
 SWAP_FILENAME=$NVBASE/fmiop_swap
 ZRAM_PRIORITY=$(grep "/dev/block/zram0" /proc/swaps | awk '{print $5}')
-SWAP_PRIORITY=$ZRAM_PRIORITY
+SWAP_TIME=false
 
 export TAG LOGFILE LOG_FOLDER
 alias uprint="ui_print"
@@ -214,7 +214,6 @@ resize_zram() {
 	local zram_block
 
 	zram_block=/dev/block/zram$zram_id
-	turnoff_zram $zram_block
 
 	[ -e "$zram_block" ] && loger "$zram_block added"
 	echo 1 >/sys/block/zram${zram_id}/use_dedup &&
@@ -338,6 +337,111 @@ read_pressure() {
     }' "$file"
 }
 
+dynamic_zram() {
+	# POSIX-compliant script for dynamic zram activation
+	# Directory where zram partitions are stored
+	ZRAM_DIR="/dev/block"
+	ZRAM_PATTERN="$ZRAM_DIR/zram*"
+
+	# Get a sorted list of available zram partitions
+	available_zrams=$(ls $ZRAM_PATTERN 2>/dev/null | sort)
+
+	if [ -z "$available_zrams" ]; then
+		echo "No zram partitions available in $ZRAM_DIR."
+		return 0
+	fi
+
+	# Get active zram partitions from /proc/swaps (skip header line)
+	active_zrams=$(awk '/zram/ {print $1}' /proc/swaps)
+
+	# Function to check if a given file is active
+	is_active() {
+		file=$1
+		echo "$active_zrams" | grep -q "^$file\$"
+	}
+
+	# If no zram partition is active, activate the first available zram partition.
+	active_found=0
+	for zram in $available_zrams; do
+		if is_active "$zram"; then
+			active_found=1
+			break
+		fi
+	done
+
+	if [ "$active_found" -eq 0 ]; then
+		first_zram=$(echo "$available_zrams" | head -n 1)
+		loger "No active zram found. Activating zram partition: $first_zram"
+		swapon -p $ZRAM_PRIORITY $first_zram && ZRAM_PRIORITY=$((ZRAM_PRIORITY - 1))
+		return 0
+	fi
+
+	# Identify the last active zram partition (by sorted order) among available zrams.
+	last_active_zram=""
+	for zram in $available_zrams; do
+		if is_active "$zram"; then
+			last_active_zram=$zram
+		fi
+	done
+
+	if [ -z "$last_active_zram" ]; then
+		echo "No active zram partition found (unexpected error)."
+		return 1
+	fi
+
+	# Get the zram partition's size and used values from /proc/swaps.
+	zram_line=$(grep "^$last_active_zram " /proc/swaps)
+	# The fields in /proc/swaps are: Filename, Type, Size, Used, Priority.
+	size=$(echo "$zram_line" | awk '{print $3}')
+	used=$(echo "$zram_line" | awk '{print $4}')
+
+	# Calculate the usage percentage.
+	usage_percent=$((used * 100 / size))
+	loger "zram partition $last_active_zram usage: ${usage_percent}%"
+
+	# If usage is 90% or more, look for the next available (inactive) zram partition and activate it.
+	if [ "$usage_percent" -ge 90 ]; then
+		next_zram=""
+		for zram in $available_zrams; do
+			if ! is_active "$zram"; then
+				next_zram=$zram
+				break
+			fi
+		done
+		if [ -n "$next_zram" ]; then
+			loger "Usage is ${usage_percent}%. Activating next zram partition: $next_zram"
+			swapon -p $ZRAM_PRIORITY "$next_zram" && ZRAM_PRIORITY=$((ZRAM_PRIORITY - 1))
+		else
+			loger "No additional zram partition available to activate."
+			SWAP_TIME=true
+			SWAP_PRIORITY=$((ZRAM_PRIORITY - 1))
+		fi
+	else
+		loger "zram usage is below threshold. No new zram partition activated."
+	fi
+}
+
+deactivate_zram_low_usage() {
+	zram_logging_breaker=true
+	# Loop over active zram files (ignoring the header line in /proc/swaps)
+	awk '/zram/ {print $1}' /proc/swaps | while read -r zram_file; do
+		# Get the corresponding line from /proc/swaps
+		zram_line=$(grep "^$zram_file " /proc/swaps)
+		# The fields are: Filename, Type, Size, Used, Priority.
+		size=$(echo "$zram_line" | awk '{print $3}')
+		used=$(echo "$zram_line" | awk '{print $4}')
+		# Calculate usage percentage (using integer arithmetic)
+		usage_percent=$((used * 100 / size))
+		if [ "$usage_percent" -lt 10 ]; then
+			loger "Deactivating zram file $zram_file (usage: ${usage_percent}%)"
+			zramoff $zram_file && ZRAM_PRIORITY=$((ZRAM_PRIORITY + 1))
+			zram_logging_breaker=false
+		elif ! $zram_logging_breaker; then
+			loger "zram file $zram_file usage ($usage_percent%) is above threshold; keeping it active."
+		fi
+	done
+}
+
 dynamic_swapon() {
 	# POSIX-compliant script for dynamic swap activation
 	# Directory where swap files are stored
@@ -353,7 +457,7 @@ dynamic_swapon() {
 	fi
 
 	# Get active swap files from /proc/swaps (skip header line)
-	active_swaps=$(awk 'NR>2 {print $1}' /proc/swaps)
+	active_swaps=$(awk '/file/ {print $1}' /proc/swaps)
 
 	# Function to check if a given file is active
 	is_active() {
@@ -373,9 +477,7 @@ dynamic_swapon() {
 	if [ "$active_found" -eq 0 ]; then
 		first_swap=$(echo "$available_swaps" | head -n 1)
 		loger "No active swap found. Activating swap file: $first_swap"
-		SWAP_PRIORITY=$ZRAM_PRIORITY
-		swapon -p $SWAP_PRIORITY $first_swap
-		SWAP_PRIORITY=$((SWAP_PRIORITY - 1))
+		swapon -p $SWAP_PRIORITY $first_swap && SWAP_PRIORITY=$((SWAP_PRIORITY - 1))
 		return 0
 	fi
 
@@ -413,9 +515,7 @@ dynamic_swapon() {
 		done
 		if [ -n "$next_swap" ]; then
 			loger "Usage is ${usage_percent}%. Activating next swap file: $next_swap"
-			swapon -p $SWAP_PRIORITY "$next_swap"
-
-			SWAP_PRIORITY=$((SWAP_PRIORITY - 1))
+			swapon -p $SWAP_PRIORITY "$next_swap" && SWAP_PRIORITY=$((SWAP_PRIORITY - 1))
 		else
 			loger "No additional swap file available to activate."
 		fi
@@ -427,7 +527,7 @@ dynamic_swapon() {
 deactivate_swap_low_usage() {
 	swap_logging_breaker=true
 	# Loop over active swap files (ignoring the header line in /proc/swaps)
-	awk 'NR > 2 {print $1}' /proc/swaps | while read -r swap_file; do
+	awk '/file/ {print $1}' /proc/swaps | while read -r swap_file; do
 		# Get the corresponding line from /proc/swaps
 		swap_line=$(grep "^$swap_file " /proc/swaps)
 		# The fields are: Filename, Type, Size, Used, Priority.
@@ -435,15 +535,14 @@ deactivate_swap_low_usage() {
 		used=$(echo "$swap_line" | awk '{print $4}')
 		# Calculate usage percentage (using integer arithmetic)
 		usage_percent=$((used * 100 / size))
-		if [ "$usage_percent" -lt 20 ]; then
+		if [ "$usage_percent" -lt 25 ]; then
 			loger "Deactivating swap file $swap_file (usage: ${usage_percent}%)"
-			swapoff $swap_file
-			SWAP_PRIORITY=$((SWAP_PRIORITY + 1))
+			swapoff $swap_file && SWAP_PRIORITY=$((SWAP_PRIORITY + 1))
 			swap_logging_breaker=false
 		elif ! $swap_logging_breaker; then
 			loger "Swap file $swap_file usage ($usage_percent%) is above threshold; keeping it active."
 		fi
-	done
+	done || SWAP_TIME=false
 }
 
 adjust_swappiness_dynamic() {
@@ -459,7 +558,7 @@ adjust_swappiness_dynamic() {
 
 	# Swappiness clamp limit
 	swap_max_limit=110
-	swap_min_limit=40 # Adjusted from 30
+	swap_min_limit=75 # Adjusted from 30
 
 	while true; do
 		exec 3>&1
@@ -505,7 +604,12 @@ adjust_swappiness_dynamic() {
 		else
 			new_swappiness=$((new_swappiness + step))
 
-			deactivate_swap_low_usage
+			if $SWAP_TIME; then
+				deactivate_swap_low_usage
+			else
+				deactivate_zram_low_usage
+			fi
+
 			swap_logging_breaker=true
 			if [ $new_swappiness -lt $swap_max_limit ] && [ $new_swappiness -gt $swap_min_limit ]; then
 				loger "Increased swappiness by $step (cpu=$cpu_metric, mem=$memory_metric)"
@@ -528,7 +632,11 @@ adjust_swappiness_dynamic() {
 		fi
 
 		if $dyn_sw; then
-			dynamic_swapon
+			if $SWAP_TIME; then
+				dynamic_swapon
+			else
+				dynamic_zram
+			fi
 			dyn_sw=false
 		fi
 
@@ -536,7 +644,7 @@ adjust_swappiness_dynamic() {
 		exec 3>&-
 
 		# Sleep for a short duration before checking again
-		sleep 1
+		sleep 0.5
 	done &
 
 	# Save the process ID for cleanup if needed

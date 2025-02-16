@@ -24,9 +24,11 @@ export MODPATH BIN NVBASE LOG_ENABLED LOG_FOLDER LOG CPU_CORES_COUNT TOTALMEM
 
 turnoff_zram /dev/block/zram0
 remove_zram 0 && loger "/dev/block/zram0 removed"
-zram_id=$(add_zram)
-resize_zram $TOTALMEM $zram_id
-turnon_zram /dev/block/zram0
+
+for _ in $(seq $CPU_CORES_COUNT); do
+	zram_id=$(add_zram)
+	resize_zram $((TOTALMEM / CPU_CORES_COUNT)) $zram_id
+done
 
 until [ $(resetprop sys.boot_completed) -eq 1 ]; do
 	sleep 5
