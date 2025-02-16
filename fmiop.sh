@@ -6,7 +6,8 @@ LOGFILE=$LOG_FOLDER/$TAG.log
 PID_DB=$LOG_FOLDER/$TAG.pids
 FOGIMP_PROPS=$NVBASE/modules/fogimp/system.prop
 SWAP_FILENAME=$NVBASE/fmiop_swap
-ZRAM_PRIORITY=$(grep "/dev/block/zram0" /proc/swaps | awk '{print $5}')
+ZRAM_PRIORITY=$(tail -n1 /proc/swaps | awk '{print $5}')
+CURRENT_ZRAM_PRIORITY=$ZRAM_PRIORITY
 SWAP_TIME=false
 
 export TAG LOGFILE LOG_FOLDER
@@ -372,7 +373,7 @@ dynamic_zram() {
 	if [ "$active_found" -eq 0 ]; then
 		first_zram=$(echo "$available_zrams" | head -n 1)
 		loger "No active zram found. Activating zram partition: $first_zram"
-		swapon -p $ZRAM_PRIORITY $first_zram && ZRAM_PRIORITY=$((ZRAM_PRIORITY - 1))
+		swapon -p $CURRENT_ZRAM_PRIORITY $first_zram && CURRENT_ZRAM_PRIORITY=$((CURRENT_ZRAM_PRIORITY - 1))
 		return 0
 	fi
 
@@ -400,7 +401,7 @@ dynamic_zram() {
 	loger "zram partition $last_active_zram usage: ${usage_percent}%"
 
 	# If usage is 90% or more, look for the next available (inactive) zram partition and activate it.
-	if [ "$usage_percent" -ge 90 ]; then
+	if [ "$usage_percent" -ge 75 ]; then
 		next_zram=""
 		for zram in $available_zrams; do
 			if ! is_active "$zram"; then
@@ -410,11 +411,11 @@ dynamic_zram() {
 		done
 		if [ -n "$next_zram" ]; then
 			loger "Usage is ${usage_percent}%. Activating next zram partition: $next_zram"
-			swapon -p $ZRAM_PRIORITY "$next_zram" && ZRAM_PRIORITY=$((ZRAM_PRIORITY - 1))
+			swapon -p $CURRENT_ZRAM_PRIORITY "$next_zram" && CURRENT_ZRAM_PRIORITY=$((CURRENT_ZRAM_PRIORITY - 1))
 		else
 			loger "No additional zram partition available to activate."
 			SWAP_TIME=true
-			SWAP_PRIORITY=$((ZRAM_PRIORITY - 1))
+			SWAP_PRIORITY=$CURRENT_ZRAM_PRIORITY
 		fi
 	else
 		loger "zram usage is below threshold. No new zram partition activated."
@@ -434,7 +435,7 @@ deactivate_zram_low_usage() {
 		usage_percent=$((used * 100 / size))
 		if [ "$usage_percent" -lt 10 ]; then
 			loger "Deactivating zram file $zram_file (usage: ${usage_percent}%)"
-			zramoff $zram_file && ZRAM_PRIORITY=$((ZRAM_PRIORITY + 1))
+			swapoff $zram_file && CURRENT_ZRAM_PRIORITY=$((CURRENT_ZRAM_PRIORITY + 1))
 			zram_logging_breaker=false
 		elif ! $zram_logging_breaker; then
 			loger "zram file $zram_file usage ($usage_percent%) is above threshold; keeping it active."
