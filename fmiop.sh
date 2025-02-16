@@ -373,6 +373,7 @@ dynamic_swapon() {
 	if [ "$active_found" -eq 0 ]; then
 		first_swap=$(echo "$available_swaps" | head -n 1)
 		loger "No active swap found. Activating swap file: $first_swap"
+		SWAP_PRIORITY=$ZRAM_PRIORITY
 		swapon -p $SWAP_PRIORITY $first_swap
 		SWAP_PRIORITY=$((SWAP_PRIORITY - 1))
 		return 0
@@ -412,7 +413,7 @@ dynamic_swapon() {
 		done
 		if [ -n "$next_swap" ]; then
 			loger "Usage is ${usage_percent}%. Activating next swap file: $next_swap"
-			swapon -p $ZRAM_PRIORITY "$next_swap"
+			swapon -p $SWAP_PRIORITY "$next_swap"
 
 			SWAP_PRIORITY=$((SWAP_PRIORITY - 1))
 		else
@@ -437,7 +438,6 @@ deactivate_swap_low_usage() {
 		if [ "$usage_percent" -lt 20 ]; then
 			loger "Deactivating swap file $swap_file (usage: ${usage_percent}%)"
 			swapoff $swap_file
-
 			SWAP_PRIORITY=$((SWAP_PRIORITY + 1))
 			swap_logging_breaker=false
 		elif ! $swap_logging_breaker; then
@@ -452,7 +452,7 @@ adjust_swappiness_dynamic() {
 	local dyn_sw=true
 
 	# Define thresholds for pressure metrics
-	cpu_high_limit=30
+	cpu_high_limit=25
 	mem_high_limit=15 # Adjusted from 23
 	io_limit=30       # Adjusted from 23
 	step=2            # Can be increased to 6 for low-RAM devices
