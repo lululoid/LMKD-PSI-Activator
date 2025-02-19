@@ -408,7 +408,7 @@ dynamic_zram() {
 	loger "zram partition $last_active_zram usage: ${usage_percent}%"
 
 	# If usage is 90% or more, look for the next available (inactive) zram partition and activate it.
-	if [ "$usage_percent" -ge 70 ]; then
+	if [ "$usage_percent" -ge 50 ]; then
 		next_zram=""
 		for zram in $available_zrams; do
 			if ! is_active "$zram"; then
@@ -423,7 +423,8 @@ dynamic_zram() {
 		else
 			loger "No additional zram partition available to activate."
 			SWAP_TIME=true
-			SWAP_PRIORITY=$((LAST_ZPRIORITY - 1))
+			LAST_ZPRIORITY=$(get_lst_zpriority)
+			SWAP_PRIORITY=$LAST_ZPRIORITY
 		fi
 	else
 		loger "zram usage is below threshold. No new zram partition activated."
@@ -537,7 +538,8 @@ dynamic_swapon() {
 deactivate_swap_low_usage() {
 	swap_logging_breaker=true
 	# Loop over active swap files (ignoring the header line in /proc/swaps)
-	awk '/file/ {print $1}' /proc/swaps | while read -r swap_file; do
+	active_swaps=$(awk '/file/ {print $1}' /proc/swaps)
+	echo "$active_swaps" | while read -r swap_file; do
 		# Get the corresponding line from /proc/swaps
 		swap_line=$(grep "^$swap_file " /proc/swaps)
 		# The fields are: Filename, Type, Size, Used, Priority.
@@ -552,7 +554,9 @@ deactivate_swap_low_usage() {
 		elif ! $swap_logging_breaker; then
 			loger "Swap file $swap_file usage ($usage_percent%) is above threshold; keeping it active."
 		fi
-	done || SWAP_TIME=false
+	done
+
+	[ -z "$active_swaps" ] && SWAP_TIME=false
 }
 
 adjust_swappiness_dynamic() {
@@ -561,14 +565,14 @@ adjust_swappiness_dynamic() {
 	local dyn_sw=true
 
 	# Define thresholds for pressure metrics
-	cpu_high_limit=25
+	cpu_high_limit=35
 	mem_high_limit=15 # Adjusted from 23
 	io_limit=30       # Adjusted from 23
 	step=2            # Can be increased to 6 for low-RAM devices
 
 	# Swappiness clamp limit
-	swap_max_limit=120
-	swap_min_limit=50 # Adjusted from 30
+	swap_max_limit=140
+	swap_min_limit=80 # Adjusted from 30
 
 	while true; do
 		exec 3>&1
@@ -580,7 +584,7 @@ adjust_swappiness_dynamic() {
 
 		# Dynamically update pressure metrics
 		memory_metric=$(read_pressure memory some avg60)
-		cpu_metric=$(read_pressure cpu some avg60)
+		cpu_metric=$(read_pressure cpu some avg10)
 		io_metric=$(read_pressure io some avg60)
 
 		# Check CPU pressure and adjust swappiness
@@ -654,7 +658,7 @@ adjust_swappiness_dynamic() {
 		exec 3>&-
 
 		# Sleep for a short duration before checking again
-		sleep 0.25
+		sleep 1
 	done &
 
 	# Save the process ID for cleanup if needed
