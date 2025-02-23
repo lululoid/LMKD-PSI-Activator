@@ -4,7 +4,9 @@
 NVBASE=/data/adb
 LOG_FOLDER=$NVBASE/fmiop
 LOG=$LOG_FOLDER/fmiop.log
+
 mkdir -p $LOG_FOLDER
+
 exec 3>&1 1>>$LOG 2>&1
 # restore stdout for magisk
 exec 1>&3
@@ -39,6 +41,7 @@ $file size: $file_size is emptied."
 	done || return 1
 
 	rm -rf $LOG_FOLDER/lmkd.log.*
+	rm -rf "${LOG_FOLDER:?}/${SWAP_FILENAME:?}."*
 	touch $LOG_FOLDER/.redempted
 }
 
