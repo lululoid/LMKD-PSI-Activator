@@ -25,6 +25,23 @@ alias swapon="$BIN/swapon"
 
 . $MODPATH/fmiop.sh
 
+fix_mistakes() {
+	ten_mb=10485760
+
+	for file in "$LOG_FOLDER/"*.log; do
+		file_size=$(check_file_size $file)
+
+		if [ $file_size -ge $ten_mb ]; then
+			ui_print "
+$file size: $file_size is emptied."
+			echo "" >$file
+		fi
+	done || return 1
+
+	rm -rf $LOG_FOLDER/lmkd.log.*
+	touch $LOG_FOLDER/.redempted
+}
+
 set_permissions() {
 	set_perm_recursive "$MODPATH" 0 0 0755 0644
 	set_perm_recursive "$MODPATH/sed" 0 2000 0755 0755
@@ -222,6 +239,10 @@ EOF
 		$MODPATH/log_service.sh
 	fi
 }
+
+if ! [ -f $LOG_FOLDER/.redempted ]; then
+	fix_mistakes
+fi
 
 set_permissions
 setup_swap
