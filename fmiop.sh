@@ -393,7 +393,7 @@ update_pressure_report() {
 	echo "id=fmiop
 name=LMKD PSI Activator
 version=v2.4-beta
-versionCode=977
+versionCode=981
 author=lululoid
 description=Memory pressure(lower is more pressure) = $memory_pressure, swappiness = $current_swappiness. Fix RAM management by activating psi mode in LMKD which is more efficient, faster and more stable than traditional minfree_levels most ROMs use
 " >"$module_prop"

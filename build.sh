@@ -1,4 +1,6 @@
 #!/bin/bash
+TAG=beta
+
 check_root() {
 	local message="$1"
 
@@ -45,8 +47,24 @@ sed -i "s/\(^version=v\)[0-9.]*\(.*\)/\1$version\2/; s/\(^versionCode=\)[0-9]*/\
 module_name=$(sed -n 's/^id=\(.*\)/\1/p' module.prop)
 fogimp_pkg=$(ls -tr packages/fogimp* | tail -n1)
 
+update_json() {
+	local file="$1"
+	local versionCode="${2:-$versionCode}"
+	local version="${3:-$version}"
+	local zipUrl="${4:-https://github.com/lululoid/LMKD-PSI-Activator/releases/download/v${version}/fmiop-v${version}_${versionCode}-$TAG.zip}"
+	local changelog="${5:-https://github.com/lululoid/LMKD-PSI-Activator/releases/download/v${version}/fmiop-v${version}_${versionCode}-changelog.md}"
+
+	jq --arg code "$versionCode" \
+		--arg ver "$version" \
+		--arg zip "$zipUrl" \
+		--arg log "$changelog" \
+		'.versionCode = $code | .version = $ver | .zipUrl = $zip | .changelog = $log' "$file" | sponge "$file"
+}
+
+update_json update_config.json "$versionCode" "$version"
+
 # Create a zip package
-package_name="packages/$module_name-v${version}_$versionCode-beta.zip"
+package_name="packages/$module_name-v${version}_$versionCode-$TAG.zip"
 7za a "$package_name" \
 	META-INF \
 	fmiop.sh \
