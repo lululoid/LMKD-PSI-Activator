@@ -1,35 +1,56 @@
 #!/system/bin/sh
+# fmiop.sh - Memory Optimization Script for Android
+# Purpose: Enhances memory management by dynamically adjusting ZRAM, swap files, and swappiness
+#          based on system pressure metrics, and provides LMKD logging and property tweaks.
+# Author: lululoid
+# Version: v2.4-beta
+# Requirements: Root access
+
 # shellcheck disable=SC3043,SC3060,SC2086,SC2046
-TAG=fmiop
-LOG_FOLDER=$NVBASE/$TAG
-LOGFILE=$LOG_FOLDER/$TAG.log
-PID_DB=$LOG_FOLDER/$TAG.pids
-FOGIMP_PROPS=$NVBASE/modules/fogimp/system.prop
-SWAP_FILENAME=$NVBASE/fmiop_swap
-ZRAM_PRIORITY=32767
-SWAP_TIME=false
-CONFIG_FILE=$LOG_FOLDER/config.yaml
+# Disabled ShellCheck warnings for local vars (3043), string trimming (3060),
+# word splitting (2086), and command substitution splitting (2046).
 
+### Configuration ###
+TAG="fmiop"                                       # Unique identifier for the script
+LOG_FOLDER="$NVBASE/$TAG"                         # Log directory (NVBASE must be set, e.g., /data/adb)
+LOGFILE="$LOG_FOLDER/$TAG.log"                    # Main log file for script activity
+PID_DB="$LOG_FOLDER/$TAG.pids"                    # File to store process IDs of background tasks
+FOGIMP_PROPS="$NVBASE/modules/fogimp/system.prop" # External properties file for LMKD tweaks
+SWAP_FILENAME="$NVBASE/fmiop_swap"                # Base name for swap files
+ZRAM_PRIORITY=32767                               # Priority for ZRAM swaps (max value)
+SWAP_TIME=false                                   # Flag to switch between ZRAM and file-based swap
+CONFIG_FILE="$LOG_FOLDER/config.yaml"             # YAML config file for thresholds and settings
+
+# Export variables for use in sourced scripts or subprocesses
 export TAG LOGFILE LOG_FOLDER
-alias uprint="ui_print"
-alias resetprop="resetprop -v"
-alias sed='$MODPATH/sed'
-alias yq='$MODPATH/yq'
 
+### Aliases ###
+alias uprint="ui_print"        # Alias for printing to UI (e.g., Magisk)
+alias resetprop="resetprop -v" # Verbose property reset (requires root)
+alias sed='$MODPATH/sed'       # Custom sed binary (MODPATH must be set)
+alias yq='$MODPATH/yq'         # Custom yq binary for YAML parsing
+
+### Utility Functions ###
+
+# read_config - Reads a value from the YAML config file with a default fallback
+# Usage: read_config <key_path> <default_value>
+# Example: read_config ".virtual_memory.zram.activation_threshold" "25"
 read_config() {
 	local key="$1" default="$2" config_file="$CONFIG_FILE"
+
 	value=$(yq e "$key" "$config_file" 2>/dev/null)
 	[ "$value" = "null" ] || [ -z "$value" ] && value="$default"
 	echo "$value"
 }
 
-# Virtual Memory Settings
+### Load Configuration from YAML ###
+# Virtual Memory Settings (with defaults if config.yaml is missing)
 ZRAM_ACTIVATION_THRESHOLD=$(read_config ".virtual_memory.zram.activation_threshold" 25)
 ZRAM_DEACTIVATION_THRESHOLD=$(read_config ".virtual_memory.zram.deactivation_threshold" 10)
 SWAP_ACTIVATION_THRESHOLD=$(read_config ".virtual_memory.swap.activation_threshold" 90)
 SWAP_DEACTIVATION_THRESHOLD=$(read_config ".virtual_memory.swap.deactivation_threshold" 25)
 
-# Dynamic Swappiness Settings
+# Dynamic Swappiness Settings (with defaults)
 SWAPPINESS_MAX=$(read_config ".dynamic_swappiness.swappiness_range.max" 140)
 SWAPPINESS_MIN=$(read_config ".dynamic_swappiness.swappiness_range.min" 80)
 CPU_PRESSURE_THRESHOLD=$(read_config ".dynamic_swappiness.threshold.cpu_pressure" 35)
@@ -37,85 +58,114 @@ MEMORY_PRESSURE_THRESHOLD=$(read_config ".dynamic_swappiness.threshold.memory_pr
 IO_PRESSURE_THRESHOLD=$(read_config ".dynamic_swappiness.threshold.io_pressure" 30)
 SWAPPINESS_STEP=$(read_config ".dynamic_swappiness.threshold.step" 2)
 
-# POSIX-compliant script for dynamic swap activation
-# Directory where swap files are stored
-SWAP_DIR="$NVBASE"
-SWAP_PATTERN="$SWAP_FILENAME*"
-ZRAM_DIR="/dev/block"
-ZRAM_PATTERN="$ZRAM_DIR/zram*"
+# Directory patterns for swap and ZRAM management
+SWAP_DIR="$NVBASE"             # Directory for swap files
+SWAP_PATTERN="$SWAP_FILENAME*" # Pattern to match swap files
+ZRAM_DIR="/dev/block"          # Directory for ZRAM devices
+ZRAM_PATTERN="$ZRAM_DIR/zram*" # Pattern to match ZRAM devices
 
+# loger - Logs messages to LOGFILE with user-friendly formatting
+# Usage: loger "message"
 loger() {
-	local log=$1
+	local log="$1"
+
 	[ -n "$log" ] && echo "
 ⟩ $log" >>"$LOGFILE"
 }
 
+# logrotate - Limits the number of log files to 2 by removing the oldest
+# Usage: logrotate <file_list>
 logrotate() {
-	local count=0
-	local log oldest_log
+	local count=0 log oldest_log
+
 	for log in "$@"; do
 		count=$((count + 1))
+
 		# shellcheck disable=SC2012
 		if [ "$count" -gt 2 ]; then
 			oldest_log=$(ls -tr "$@" | head -n 1)
 			rm -rf "$oldest_log"
+			loger "Removed oldest log file: $oldest_log to keep only 2 logs"
 		fi
 	done
 }
 
+# check_file_size - Returns the size of a file in bytes
+# Usage: check_file_size <file>
 check_file_size() {
-	stat -c%s "$1"
+	stat -c%s "$1" 2>/dev/null || echo 0
 }
 
+# save_pid - Saves a PID to PID_DB with a name
+# Usage: save_pid <name> <pid>
 save_pid() {
-	local pid_name=$1
-	local pid_value=$2
+	local pid_name="$1" pid_value="$2"
 
 	sed -i "/^$pid_name=/d" "$PID_DB"
 	echo "$pid_name=$pid_value" >>"$PID_DB"
+	loger "Saved PID $pid_value for $pid_name"
 }
 
+# remove_pid - Removes a PID entry from PID_DB
+# Usage: remove_pid <name>
 remove_pid() {
-	local pid_name=$1
+	local pid_name="$1"
+
 	sed -i "/^$pid_name=/d" "$PID_DB"
+	loger "Removed PID entry for $pid_name"
 }
 
+# read_pid - Reads a PID from PID_DB by name
+# Usage: read_pid <name>
 read_pid() {
 	grep "$1" "$PID_DB" | cut -d= -f2
 }
 
+# kill_all_pids - Terminates all processes listed in PID_DB
 kill_all_pids() {
 	local pid_name pid_value
+
 	while IFS= read -r line; do
 		pid_name=$(echo "$line" | cut -d= -f1)
 		pid_value=$(echo "$line" | cut -d= -f2)
+
 		if [ -n "$pid_value" ]; then
 			kill -9 "$pid_value" && loger "Killed $pid_name with PID $pid_value"
 			remove_pid "$pid_name"
 		fi
 	done <"$PID_DB"
+	loger "All tracked processes terminated"
 }
 
+# lmkd_loger - Logs LMKD activity to a file with rotation
+# Usage: lmkd_loger <log_file>
 lmkd_loger() {
-	local log_file=$1
-	local new_pid
+	local log_file="$1" new_pid old_pid
 
-	resetprop ro.lmk.debug true
-	old_pid=$(read_pid fmiop.lmkd_loger.pid)
+	loger "Starting LMKD logging to $log_file"
+	resetprop ro.lmk.debug true || loger "Failed to enable LMKD debug mode"
+	old_pid=$(read_pid "fmiop.lmkd_loger.pid")
+
 	if [ -n "$old_pid" ]; then
 		kill -9 "$old_pid"
 		remove_pid "fmiop.lmkd_loger.pid"
+		loger "Stopped previous LMKD logger (PID $old_pid)"
 	fi
 
-	$BIN/logcat -v time --pid=$(pidof lmkd) -r "$((5 * 1024))" -n 2 --file=$log_file &
+	$BIN/logcat -v time --pid=$(pidof lmkd) -r "$((5 * 1024))" -n 2 --file="$log_file" &
+
 	if [ $? -ne 0 ]; then
-		loger "Failed to start logcat"
+		loger "Failed to start logcat for LMKD"
 		return 1
 	fi
+
 	new_pid=$!
 	save_pid "fmiop.lmkd_loger.pid" "$new_pid"
+	loger "LMKD logger started with PID $new_pid"
 }
 
+# loger_watcher - Monitors log files and rotates them when they exceed 10MB
+# Usage: loger_watcher <log_files>
 loger_watcher() {
 	logs="$1"
 	ten_mb=10485760
@@ -123,18 +173,21 @@ loger_watcher() {
 	# exec 3>&-
 	# set +x
 
+	loger "Starting log watcher for files: $logs"
+
 	while true; do
 		for log in $logs; do
 			log_size=$(check_file_size "$log")
-			if [ $log_size -ge $ten_mb ]; then
+
+			if [ "$log_size" -ge "$ten_mb" ]; then
 				exec 3>&1
 				set -x
 
 				log_count=$(find "${log%.log}"* | wc -l)
 				new_log_file="$log.$log_count"
-
 				cp "$log" "$new_log_file"
-				echo "" >$log
+				echo "" >"$log"
+				loger "Rotated $log to $new_log_file (size: $log_size bytes)"
 				logrotate "$log.*"
 
 				exec 3>&-
@@ -145,6 +198,8 @@ loger_watcher() {
 	done
 }
 
+# rm_prop - Deletes specified system properties
+# Usage: rm_prop <prop1> <prop2> ...
 rm_prop() {
 	local prop
 	for prop in "$@"; do
@@ -156,6 +211,7 @@ EOF
 	done
 }
 
+# lmkd_props_clean - Removes default LMKD properties to reset configuration
 lmkd_props_clean() {
 	set --
 	set \
@@ -171,19 +227,23 @@ lmkd_props_clean() {
 		"sys.lmk.minfree_levels" \
 		"ro.lmk.upgrade_pressure" \
 		"ro.lmk.downgrade_pressure"
+	loger "Cleaning default LMKD properties"
 	rm_prop "$@"
 }
 
+# relmkd - Reinitializes the LMKD daemon
 relmkd() {
-	resetprop lmkd.reinit 1
+	resetprop lmkd.reinit 1 && loger "LMKD reinitialized"
 }
 
+# approps - Applies properties from a file and verifies them
+# Usage: approps <prop_file>
 approps() {
-	local prop_file=$1
-	local prop value
+	local prop_file="$1" prop value
 
 	set -f
-	resetprop -f $prop_file
+	loger "Applying properties from $prop_file"
+	resetprop -f "$prop_file"
 	grep -v '^ *#' "$prop_file" | while IFS='=' read -r prop value; do
 		cat <<EOF
   › $prop 
@@ -197,126 +257,150 @@ EOF
 	done
 }
 
+# notif - Sends a notification to the user
+# Usage: notif "message"
 notif() {
-	local body=$1
-
-	su -lp 2000 -c \
-		"cmd notification post -S bigtext -t 'fmiop' 'Tag' '$body'"
+	local body="$1"
+	loger "Sending notification: $body"
+	su -lp 2000 -c "cmd notification post -S bigtext -t 'fmiop' 'Tag' '$body'"
 }
 
+# turnoff_zram - Disables a ZRAM partition
+# Usage: turnoff_zram <zram_device>
 turnoff_zram() {
-	local zram=$1
+	local zram="$1"
 
 	[ -n "$zram" ] && for _ in $(seq 20); do
 		if swapoff "$zram"; then
-			loger "$zram turned off"
+			loger "ZRAM $zram turned off successfully"
 			return 0
 		fi
 		sleep 1
 	done
 
-	loger "Failed to turn off $zram"
+	loger "Failed to turn off ZRAM $zram after 20 attempts"
 	return 1
 }
 
+# add_zram - Adds a new ZRAM partition
 add_zram() {
-	zram_id=$(cat /sys/class/zram-control/hot_add)
+	zram_id=$(cat /sys/class/zram-control/hot_add 2>/dev/null)
+
 	if [ -n "$zram_id" ]; then
-		loger "zram$zram_id created" && echo "$zram_id"
+		loger "Created new ZRAM partition: zram$zram_id"
+		echo "$zram_id"
 		return 0
 	fi
+
+	loger "Failed to create new ZRAM partition"
 	return 1
 }
 
+# remove_zram - Removes a ZRAM partition
+# Usage: remove_zram <zram_id>
 remove_zram() {
-	echo $1 >/sys/class/zram-control/hot_remove
+	{
+		echo "$1" >/sys/class/zram-control/hot_remove 2>/dev/null && loger "Removed ZRAM partition $1"
+	} || loger "Failed to remove ZRAM $1"
 }
 
+# resize_zram - Resizes a ZRAM partition and prepares it for swapping
+# Usage: resize_zram <size> <zram_id>
 resize_zram() {
-	local size=$1
-	local zram_id=$2
-	local zram_block
+	local size="$1" zram_id="$2" zram_block
+	zram_block="/dev/block/zram$zram_id"
 
-	zram_block=/dev/block/zram$zram_id
-
-	[ -e "$zram_block" ] && loger "$zram_block added"
-	echo 1 >/sys/block/zram${zram_id}/use_dedup &&
-		loger "use_dedup to reduce memory usage"
-	echo "$size" >/sys/block/zram${zram_id}/disksize &&
-		loger "set ZRAM$zram_id disksize to $size"
+	loger "Resizing ZRAM$zram_id to $size"
+	[ -e "$zram_block" ] && loger "ZRAM block device $zram_block exists"
+	echo 1 >/sys/block/zram${zram_id}/use_dedup 2>/dev/null && loger "Enabled deduplication for ZRAM$zram_id"
+	echo "$size" >/sys/block/zram${zram_id}/disksize 2>/dev/null && loger "Set ZRAM$zram_id size to $size"
 
 	for _ in $(seq 5); do
-		if mkswap "$zram_block"; then
+		if mkswap "$zram_block" 2>/dev/null; then
+			loger "Initialized swap on ZRAM$zram_id"
 			break
 		fi
 		sleep 1
 	done
 }
 
+# get_memory_pressure - Calculates memory pressure as a percentage
 get_memory_pressure() {
 	local mem_usage memsw_usage memory_pressure
-	mem_usage=$(cat /dev/memcg/memory.usage_in_bytes)
-	memsw_usage=$(cat /dev/memcg/memory.memsw.usage_in_bytes)
+	mem_usage=$(cat /dev/memcg/memory.usage_in_bytes 2>/dev/null || echo 0)
+	memsw_usage=$(cat /dev/memcg/memory.memsw.usage_in_bytes 2>/dev/null || echo 1)
 	memory_pressure=$(awk -v mem_usage="$mem_usage" -v memsw_usage="$memsw_usage" 'BEGIN {print int(mem_usage * 100 / memsw_usage)}')
+
 	echo "$memory_pressure"
 }
 
+# is_device_sleeping - Checks if the device is in sleep mode
 is_device_sleeping() {
-	dumpsys power | grep 'mWakefulness=' | grep 'Asleep'
+	dumpsys power | grep 'mWakefulness=' | grep 'Asleep' >/dev/null && loger "Device is sleeping"
 }
 
+# is_device_dozing - Checks if the device is in doze mode
 is_device_dozing() {
-	dumpsys deviceidle get deep | grep IDLE && loger "Device is entering doze mode"
+	dumpsys deviceidle get deep | grep IDLE >/dev/null && loger "Device is entering doze mode"
 }
 
+# apply_lmkd_props - Applies LMKD properties from files
 apply_lmkd_props() {
-	resetprop -f $MODPATH/system.prop
-	resetprop -f $FOGIMP_PROPS
+	loger "Applying LMKD properties from $MODPATH/system.prop and $FOGIMP_PROPS"
+	resetprop -f "$MODPATH/system.prop" 2>/dev/null
+	resetprop -f "$FOGIMP_PROPS" 2>/dev/null
 }
 
+# adjust_minfree_pairs_by_percentage - Adjusts minfree pairs by a percentage
+# Usage: adjust_minfree_pairs_by_percentage <percentage> <input_string>
 adjust_minfree_pairs_by_percentage() {
-	percentage="$1"
-	input="$2"
-
-	# Loop through each pair separated by comma
+	percentage="$1" input="$2"
+	loger "Adjusting minfree pairs in '$input' by $percentage%"
 	echo "$input" | awk -v perc="$percentage" '{
         n = split($0, pairs, ",");
         for (i = 1; i <= n; i++) {
             split(pairs[i], kv, ":");
-            # Adjust the first value by the percentage
             kv[1] = kv[1] * (1 + perc / 100);
             printf "%d:%s", kv[1], kv[2];
-            if (i < n) {
-                printf ",";
-            }
+            if (i < n) printf ",";
         }
     }'
 }
 
+# turnon_zram - Enables a ZRAM partition for swapping
+# Usage: turnon_zram <zram_device>
 turnon_zram() {
-	if $BIN/swapon -p 32767 $1; then
-		loger "$1 turned on"
+	if $BIN/swapon -p 32767 "$1" 2>/dev/null; then
+		loger "ZRAM $1 turned on with priority 32767"
 	else
-		loger "Failed to turn on $1"
+		loger "Failed to turn on ZRAM $1"
 		return 1
 	fi
 }
 
+# update_pressure_report - Updates the module.prop with current memory pressure
 update_pressure_report() {
 	memory_pressure=$(get_memory_pressure)
 	module_prop="$MODPATH/module.prop"
 
+	if [ $last_memory_pressure -ne "$memory_pressure" ]; then
+		loger "Updating memory pressure report to $memory_pressure%"
+		last_memory_pressure=$memory_pressure
+	fi
+
 	echo "id=fmiop
 name=LMKD PSI Activator
-version=v2.3-alpha
-versionCode=945
+version=v2.4-beta
+versionCode=972
 author=lululoid
-description=Memory pressure(lower is more pressure) = -1. Fix RAM management by activating psi mode in LMKD which is more efficient, faster and more stable than traditional minfree_levels most ROMs use
-" | sed "s/\(Memory pressure.*= \)-\?[0-9]*/\1$memory_pressure/" >$module_prop
+description=Memory pressure(lower is more pressure) = $memory_pressure. Fix RAM management by activating psi mode in LMKD which is more efficient, faster and more stable than traditional minfree_levels most ROMs use
+" >"$module_prop"
 }
 
+# save_pressures_to_vars - Stores pressure metrics from /proc/pressure into variables
 save_pressures_to_vars() {
-	# Loop over the two pressure levels: "full" and "some"
+	loger "Saving pressure metrics to variables"
+
 	for level in full some; do
 		# Loop over each file in /proc/pressure
 		for file in /proc/pressure/*; do
@@ -330,24 +414,25 @@ save_pressures_to_vars() {
 				value=${pair#*=}
 
 				# Get the filename (without directory path) as the hardware identifier.
+				key=${pair%%=*} value=${pair#*=}
 				hw=$(basename "$file")
-
 				# Create a new variable with the desired prefix and assign it the value.
 				# For example, if hw is "memory", level is "full", key is "avg10" and value "3.41",
 				# this will execute: full_avg10="3.41" (prefixed with the hardware name, e.g., memory_full_avg10).
 				eval "${hw}_${level}_${key}=\"${value}\""
+				loger "Set ${hw}_${level}_${key}=$value"
 			done
 		done
 	done
 }
 
+# read_pressure - Reads a specific pressure metric from /proc/pressure
+# Usage: read_pressure <resource> <level> <key>
 read_pressure() {
-	resource=$1
-	level=$2
-	key=$3
-	file="/proc/pressure/$resource"
+	resource="$1" level="$2" key="$3" file="/proc/pressure/$resource"
 
 	if [ ! -f "$file" ]; then
+		loger "Error: Pressure file $file not found"
 		echo "Error: $file not found" >&2
 		return 1
 	fi
@@ -356,41 +441,33 @@ read_pressure() {
     $1 == lvl {
         for (i = 2; i <= NF; i++) {
             split($i, a, "=")
-            if (a[1] == k) {
-                printf "%s", a[2]
-                exit
-            }
+            if (a[1] == k) { printf "%s", a[2]; exit }
         }
     }' "$file"
 }
 
+# get_lst_zpriority - Gets the priority of the last active ZRAM swap
 get_lst_zpriority() {
 	awk '/zram/ {print $5}' /proc/swaps | tail -n1
 }
 
+# get_lst_spriority - Gets the priority of the last active file swap
 get_lst_spriority() {
 	awk '/file/ {print $5}' /proc/swaps | tail -n1
 }
 
+# dynamic_zram - Dynamically activates ZRAM partitions based on usage
 dynamic_zram() {
-	# Get a sorted list of available zram partitions
-	available_zrams=$(ls $ZRAM_PATTERN 2>/dev/null | sort)
+	available_zrams=$(find $ZRAM_PATTERN 2>/dev/null | sort)
 
 	if [ -z "$available_zrams" ]; then
-		echo "No zram partitions available in $ZRAM_DIR."
+		loger "No ZRAM partitions available in $ZRAM_DIR"
 		return 0
 	fi
 
-	# Get active zram partitions from /proc/swaps (skip header line)
 	active_zrams=$(awk '/zram/ {print $1}' /proc/swaps)
+	is_active() { echo "$active_zrams" | grep -q "^$1\$"; }
 
-	# Function to check if a given file is active
-	is_active() {
-		file=$1
-		echo "$active_zrams" | grep -q "^$file\$"
-	}
-
-	# If no zram partition is active, activate the first available zram partition.
 	active_found=0
 	for zram in $available_zrams; do
 		if is_active "$zram"; then
@@ -401,99 +478,89 @@ dynamic_zram() {
 
 	if [ "$active_found" -eq 0 ]; then
 		first_zram=$(echo "$available_zrams" | head -n 1)
-		loger "No active zram found. Activating zram partition: $first_zram"
-		swapon -p $ZRAM_PRIORITY $first_zram
+		loger "No active ZRAM found. Activating $first_zram with priority $ZRAM_PRIORITY"
+		swapon -p "$ZRAM_PRIORITY" "$first_zram" 2>/dev/null
 		return 0
 	fi
 
-	# Identify the last active zram partition (by sorted order) among available zrams.
 	last_active_zram=""
 	for zram in $available_zrams; do
 		if is_active "$zram"; then
-			last_active_zram=$zram
+			last_active_zram="$zram"
 		fi
 	done
 
 	if [ -z "$last_active_zram" ]; then
-		loger "No active zram partition found (unexpected error)."
+		loger "Unexpected: No active ZRAM partition found"
 		return 1
 	fi
 
-	# Get the zram partition's size and used values from /proc/swaps.
 	zram_line=$(grep "^$last_active_zram " /proc/swaps)
-	# The fields in /proc/swaps are: Filename, Type, Size, Used, Priority.
 	size=$(echo "$zram_line" | awk '{print $3}')
 	used=$(echo "$zram_line" | awk '{print $4}')
-
-	# Calculate the usage percentage.
 	usage_percent=$((used * 100 / size))
-	loger "zram partition $last_active_zram usage: ${usage_percent}%"
 
-	# If usage is $ZRAM_ACTIVATION_THRESHOLD or more, look for the next available (inactive) swap file and activate it.
-	if [ "$usage_percent" -ge $ZRAM_ACTIVATION_THRESHOLD ]; then
+	loger "ZRAM $last_active_zram usage: ${usage_percent}% (Threshold: $ZRAM_ACTIVATION_THRESHOLD%)"
+
+	if [ "$usage_percent" -ge "$ZRAM_ACTIVATION_THRESHOLD" ]; then
 		next_zram=""
+
 		for zram in $available_zrams; do
 			if ! is_active "$zram"; then
-				next_zram=$zram
+				next_zram="$zram"
 				break
 			fi
 		done
+
 		if [ -n "$next_zram" ]; then
-			loger "Usage is ${usage_percent}%. Activating next zram partition: $next_zram"
 			LAST_ZPRIORITY=$(get_lst_zpriority)
-			swapon -p $((LAST_ZPRIORITY - 1)) "$next_zram"
+			loger "Activating $next_zram at ${usage_percent}% usage with priority $((LAST_ZPRIORITY - 1))"
+			swapon -p "$((LAST_ZPRIORITY - 1))" "$next_zram" 2>/dev/null
 		else
-			loger "No additional zram partition available to activate."
+			loger "No additional ZRAM available; switching to swap mode"
 			SWAP_TIME=true
 			LAST_ZPRIORITY=$(get_lst_zpriority)
-			SWAP_PRIORITY=$LAST_ZPRIORITY
+			SWAP_PRIORITY="$LAST_ZPRIORITY"
 		fi
 	else
-		loger "zram usage is below threshold. No new zram partition activated."
+		loger "ZRAM usage below $ZRAM_ACTIVATION_THRESHOLD%; no action needed"
 	fi
 }
 
+# deactivate_zram_low_usage - Deactivates ZRAM partitions with low usage
 deactivate_zram_low_usage() {
 	zram_logging_breaker=true
-	# Loop over active zram files (ignoring the header line in /proc/swaps)
+
 	awk '/zram/ {print $1}' /proc/swaps | while read -r zram_file; do
-		# Get the corresponding line from /proc/swaps
 		zram_line=$(grep "^$zram_file " /proc/swaps)
-		# The fields are: Filename, Type, Size, Used, Priority.
 		size=$(echo "$zram_line" | awk '{print $3}')
 		used=$(echo "$zram_line" | awk '{print $4}')
-		# Calculate usage percentage (using integer arithmetic)
-		# Deactivate if usage is below threshold
 		usage_percent=$((used * 100 / size))
-		if [ "$usage_percent" -lt $ZRAM_DEACTIVATION_THRESHOLD ]; then
-			loger "Deactivating zram file $zram_file (usage: ${usage_percent}%)"
-			swapoff $zram_file
+
+		if [ "$usage_percent" -lt "$ZRAM_DEACTIVATION_THRESHOLD" ]; then
+			loger "ZRAM deactivation threshold reached"
+			loger "Deactivating $zram_file (usage: ${usage_percent}% < $ZRAM_DEACTIVATION_THRESHOLD%)"
+			swapoff "$zram_file" 2>/dev/null
 			zram_logging_breaker=false
-		elif ! $zram_logging_breaker; then
-			loger "zram file $zram_file usage ($usage_percent%) is above threshold; keeping it active."
+
+		elif ! "$zram_logging_breaker"; then
+			loger "$zram_file usage (${usage_percent}%) above $ZRAM_DEACTIVATION_THRESHOLD%; keeping active"
 		fi
 	done
 }
 
+# dynamic_swapon - Dynamically activates swap files based on usage
 dynamic_swapon() {
-	# Get a sorted list of available swap files
-	available_swaps=$(ls $SWAP_PATTERN 2>/dev/null | sort)
+	available_swaps=$(find $SWAP_PATTERN 2>/dev/null | sort)
 
 	if [ -z "$available_swaps" ]; then
-		echo "No swap files available in $SWAP_DIR."
+		loger "No swap files available in $SWAP_DIR"
 		return 0
 	fi
 
-	# Get active swap files from /proc/swaps (skip header line)
 	active_swaps=$(awk '/file/ {print $1}' /proc/swaps)
+	is_active() { echo "$active_swaps" | grep -q "^$1\$"; }
 
-	# Function to check if a given file is active
-	is_active() {
-		file=$1
-		echo "$active_swaps" | grep -q "^$file\$"
-	}
-
-	# If no swap file is active, activate the first available swap file.
 	active_found=0
 	for swap in $available_swaps; do
 		if is_active "$swap"; then
@@ -504,166 +571,130 @@ dynamic_swapon() {
 
 	if [ "$active_found" -eq 0 ]; then
 		first_swap=$(echo "$available_swaps" | head -n 1)
-		loger "No active swap found. Activating swap file: $first_swap"
-		swapon -p $SWAP_PRIORITY $first_swap
+		loger "No active swap found. Activating $first_swap with priority $SWAP_PRIORITY"
+		swapon -p "$SWAP_PRIORITY" "$first_swap" 2>/dev/null
 	fi
 
-	# Identify the last active swap file (by sorted order) among available swaps.
 	last_active_swap=""
 	for swap in $available_swaps; do
 		if is_active "$swap"; then
-			last_active_swap=$swap
+			last_active_swap="$swap"
 		fi
 	done
 
 	if [ -z "$last_active_swap" ]; then
-		loger "No active swap file found (unexpected error)."
+		loger "Unexpected: No active swap file found"
 		return 1
 	fi
 
-	# Get the swap file's size and used values from /proc/swaps.
 	swap_line=$(grep "^$last_active_swap " /proc/swaps)
-	# The fields in /proc/swaps are: Filename, Type, Size, Used, Priority.
 	size=$(echo "$swap_line" | awk '{print $3}')
 	used=$(echo "$swap_line" | awk '{print $4}')
-
-	# Calculate the usage percentage.
 	usage_percent=$((used * 100 / size))
-	loger "Swap file $last_active_swap usage: ${usage_percent}%"
 
-	# If usage is $SWAP_ACTIVATION_THRESHOLD or more, look for the next available (inactive) swap file and activate it.
-	if [ "$usage_percent" -ge $SWAP_ACTIVATION_THRESHOLD ]; then
+	loger "Swap file $last_active_swap usage: ${usage_percent}% (Threshold: $SWAP_ACTIVATION_THRESHOLD%)"
+	if [ "$usage_percent" -ge "$SWAP_ACTIVATION_THRESHOLD" ]; then
 		next_swap=""
 		for swap in $available_swaps; do
 			if ! is_active "$swap"; then
-				next_swap=$swap
+				next_swap="$swap"
 				break
 			fi
 		done
 		if [ -n "$next_swap" ]; then
-			loger "Usage is ${usage_percent}%. Activating next swap file: $next_swap"
 			LAST_SPRIORITY=$(get_lst_spriority)
-			swapon -p $((LAST_SPRIORITY - 1)) "$next_swap"
+			loger "Activating $next_swap at ${usage_percent}% usage with priority $((LAST_SPRIORITY - 1))"
+			swapon -p "$((LAST_SPRIORITY - 1))" "$next_swap" 2>/dev/null
 		else
-			loger "No additional swap file available to activate."
+			loger "No additional swap files available"
 		fi
 	else
-		loger "Swap usage is below threshold. No new swap file activated."
+		loger "Swap usage below $SWAP_ACTIVATION_THRESHOLD%; no action needed"
 	fi
 }
 
+# deactivate_swap_low_usage - Deactivates swap files with low usage
 deactivate_swap_low_usage() {
 	swap_logging_breaker=true
-	# Loop over active swap files (ignoring the header line in /proc/swaps)
 	active_swaps=$(awk '/file/ {print $1}' /proc/swaps)
+
 	echo "$active_swaps" | while read -r swap_file; do
-		# Get the corresponding line from /proc/swaps
 		swap_line=$(grep "^$swap_file " /proc/swaps)
-		# The fields are: Filename, Type, Size, Used, Priority.
 		size=$(echo "$swap_line" | awk '{print $3}')
 		used=$(echo "$swap_line" | awk '{print $4}')
-		# Calculate usage percentage (using integer arithmetic)
 		usage_percent=$((used * 100 / size))
-		if [ "$usage_percent" -lt $SWAP_DEACTIVATION_THRESHOLD ]; then
-			loger "Deactivating swap file $swap_file (usage: ${usage_percent}%)"
-			swapoff $swap_file
+
+		if [ "$usage_percent" -lt "$SWAP_DEACTIVATION_THRESHOLD" ]; then
+			loger "Swap deactivation threshold reached"
+			loger "Deactivating $swap_file (usage: ${usage_percent}% < $SWAP_DEACTIVATION_THRESHOLD%)"
+			swapoff "$swap_file" 2>/dev/null
 			swap_logging_breaker=false
-		elif ! $swap_logging_breaker; then
-			loger "Swap file $swap_file usage ($usage_percent%) is above threshold; keeping it active."
+
+		elif ! "$swap_logging_breaker"; then
+			loger "$swap_file usage (${usage_percent}%) above $SWAP_DEACTIVATION_THRESHOLD%; keeping active"
 		fi
 	done
 
 	[ -z "$active_swaps" ] && SWAP_TIME=false
 }
 
+# adjust_swappiness_dynamic - Dynamically adjusts swappiness based on pressure metrics
 adjust_swappiness_dynamic() {
-	local current_swappiness new_swappiness step memory_metric cpu_metric io_metric
-	local cpu_high_limit mem_high_limit io_limit
-	local dyn_sw=true
+	local current_swappiness new_swappiness memory_metric cpu_metric io_metric dyn_sw=true
 
-	# Define thresholds for pressure metrics
-	cpu_high_limit=$CPU_PRESSURE_THRESHOLD
-	mem_high_limit=$MEMORY_PRESSURE_THRESHOLD
-	io_limit=$IO_PRESSURE_THRESHOLD
-	step=$SWAPPINESS_STEP
-
-	# Swappiness clamp limit
-	swap_max_limit=$SWAPPINESS_MAX
-	swap_min_limit=$SWAPPINESS_MIN
+	loger "Starting dynamic swappiness adjustment (Max: $SWAPPINESS_MAX, Min: $SWAPPINESS_MIN)"
+	loger "Thresholds - CPU: $CPU_PRESSURE_THRESHOLD, Memory: $MEMORY_PRESSURE_THRESHOLD, IO: $IO_PRESSURE_THRESHOLD, Step: $SWAPPINESS_STEP"
 
 	while true; do
 		exec 3>&1
 		set -x
 
-		# Read current swappiness (assumed to be an integer)
 		current_swappiness=$(cat /proc/sys/vm/swappiness)
-		new_swappiness=$current_swappiness
-
-		# Dynamically update pressure metrics
+		new_swappiness="$current_swappiness"
 		memory_metric=$(read_pressure memory some avg60)
 		cpu_metric=$(read_pressure cpu some avg10)
 		io_metric=$(read_pressure io some avg60)
 
-		# Check CPU pressure and adjust swappiness
-		# Check memory high-pressure and adjust swappiness
-		# Check IO pressure and adjust swappiness
-		# Check memory pressure and adjust swappiness
-		if [ "$(echo "$io_metric > $io_limit" | bc -l)" -eq 1 ]; then
-			new_swappiness=$((new_swappiness - step))
-
-			# Initiate swap activation
+		if [ "$(echo "$io_metric > $IO_PRESSURE_THRESHOLD" | bc -l)" -eq 1 ]; then
+			new_swappiness=$((new_swappiness - SWAPPINESS_STEP))
 			dyn_sw=true
-			if [ $new_swappiness -lt $swap_max_limit ] && [ $new_swappiness -gt $swap_min_limit ]; then
-				loger "Decreased swappiness by $step due to IO pressure (io=$io_metric)"
-			fi
-		elif [ "$(echo "$cpu_metric > $cpu_high_limit" | bc -l)" -eq 1 ]; then
-			new_swappiness=$((new_swappiness - step))
-
-			# Initiate swap activation
+			[ "$new_swappiness" -lt "$SWAPPINESS_MAX" ] && [ "$new_swappiness" -gt "$SWAPPINESS_MIN" ] &&
+				loger "Decreased swappiness by $SWAPPINESS_STEP due to IO pressure ($io_metric > $IO_PRESSURE_THRESHOLD)"
+		elif [ "$(echo "$cpu_metric > $CPU_PRESSURE_THRESHOLD" | bc -l)" -eq 1 ]; then
+			new_swappiness=$((new_swappiness - SWAPPINESS_STEP))
 			dyn_sw=true
-			if [ $new_swappiness -lt $swap_max_limit ] && [ $new_swappiness -gt $swap_min_limit ]; then
-				loger "Decreased swappiness by $step due to high CPU pressure (cpu=$cpu_metric)"
-			fi
-		elif [ "$(echo "$memory_metric > $mem_high_limit" | bc -l)" -eq 1 ]; then
-			new_swappiness=$((new_swappiness - step))
-
-			# Initiate swap activation
+			[ "$new_swappiness" -lt "$SWAPPINESS_MAX" ] && [ "$new_swappiness" -gt "$SWAPPINESS_MIN" ] &&
+				loger "Decreased swappiness by $SWAPPINESS_STEP due to CPU pressure ($cpu_metric > $CPU_PRESSURE_THRESHOLD)"
+		elif [ "$(echo "$memory_metric > $MEMORY_PRESSURE_THRESHOLD" | bc -l)" -eq 1 ]; then
+			new_swappiness=$((new_swappiness - SWAPPINESS_STEP))
 			dyn_sw=true
-			if [ $new_swappiness -lt $swap_max_limit ] && [ $new_swappiness -gt $swap_min_limit ]; then
-				loger "Decreased swappiness by $step due to high memory pressure (mem=$memory_metric)"
-			fi
+			[ "$new_swappiness" -lt "$SWAPPINESS_MAX" ] && [ "$new_swappiness" -gt "$SWAPPINESS_MIN" ] &&
+				loger "Decreased swappiness by $SWAPPINESS_STEP due to memory pressure ($memory_metric > $MEMORY_PRESSURE_THRESHOLD)"
 		else
-			new_swappiness=$((new_swappiness + step))
-
-			if $SWAP_TIME; then
+			new_swappiness=$((new_swappiness + SWAPPINESS_STEP))
+			if "$SWAP_TIME"; then
 				deactivate_swap_low_usage
 			else
 				deactivate_zram_low_usage
 			fi
-
 			swap_logging_breaker=true
-			if [ $new_swappiness -lt $swap_max_limit ] && [ $new_swappiness -gt $swap_min_limit ]; then
-				loger "Increased swappiness by $step (cpu=$cpu_metric, mem=$memory_metric)"
-			fi
+			[ "$new_swappiness" -lt "$SWAPPINESS_MAX" ] && [ "$new_swappiness" -gt "$SWAPPINESS_MIN" ] &&
+				loger "Increased swappiness by $SWAPPINESS_STEP (cpu=$cpu_metric, mem=$memory_metric)"
 		fi
 
-		# Apply the new swappiness value
-		# Clamp the new value to the allowed range 0 to 200
-		if [ "$new_swappiness" -gt $swap_max_limit ]; then
-			new_swappiness=$swap_max_limit
-		elif [ "$new_swappiness" -lt $swap_min_limit ]; then
-			new_swappiness=$swap_min_limit
+		if [ "$new_swappiness" -gt "$SWAPPINESS_MAX" ]; then
+			new_swappiness="$SWAPPINESS_MAX"
+		elif [ "$new_swappiness" -lt "$SWAPPINESS_MIN" ]; then
+			new_swappiness="$SWAPPINESS_MIN"
 		fi
 
-		# Log the change (only log if there is a change in swappiness)
 		if [ "$new_swappiness" != "$current_swappiness" ]; then
-			# Write the new swappiness value
 			echo "$new_swappiness" >/proc/sys/vm/swappiness
-			loger "Swappiness adjusted from $current_swappiness to $new_swappiness (cpu_pressure=$cpu_metric, io_pressure=$io_metric, memory_pressure=$memory_metric)"
+			loger "Swappiness adjusted from $current_swappiness to $new_swappiness (cpu=$cpu_metric, io=$io_metric, mem=$memory_metric)"
 		fi
 
-		if $dyn_sw; then
-			if $SWAP_TIME; then
+		if "$dyn_sw"; then
+			if "$SWAP_TIME"; then
 				dynamic_swapon
 			else
 				dynamic_zram
@@ -673,51 +704,45 @@ adjust_swappiness_dynamic() {
 
 		set +x
 		exec 3>&-
-
-		# Sleep for a short duration before checking again
 		sleep 1
 	done &
-
-	# Save the process ID for cleanup if needed
 	new_pid=$!
 	save_pid "fmiop.dynswap.pid" "$new_pid"
+	loger "Dynamic swappiness adjustment running with PID $new_pid"
 }
 
+# fmiop - Main function to manage LMKD properties and pressure reporting
 fmiop() {
 	local new_pid zram_block memory_pressure props
-
 	set +x
 	exec 3>&-
+	loger "Starting fmiop memory optimization"
 
-	# Saving props as variables
-	[ -f $FOGIMP_PROPS ] && while IFS='=' read -r key value; do
+	[ -f "$FOGIMP_PROPS" ] && while IFS='=' read -r key value; do
 		[ -z "$key" ] || [ -z "$value" ] || [ "${key#'#'}" != "$key" ] && continue
 		props="$props $key"
-		key=$(echo "$key" | tr '.' '_') # Replace dots with underscores to make valid variable names
+		key=$(echo "$key" | tr '.' '_')
 		eval "$key=\"$value\""
-	done <$FOGIMP_PROPS
+		loger "Loaded property $key=$value from $FOGIMP_PROPS"
+	done <"$FOGIMP_PROPS"
 
 	while true; do
 		rm_prop sys.lmk.minfree_levels && {
 			exec 3>&1
 			set -x
-
 			relmkd
-
 			set +x
 			exec 3>&-
 		}
 
-		[ -f $FOGIMP_PROPS ] && for prop in $props; do
-			if ! resetprop $prop >/dev/null; then
+		[ -f "$FOGIMP_PROPS" ] && for prop in $props; do
+			if ! resetprop "$prop" >/dev/null 2>&1; then
 				exec 3>&1
 				set -x
-
 				var=$(echo "$prop" | tr '.' '_')
-				eval value="\$$var" # Dynamically get the value of the variable named by $var
-				resetprop "$prop" "$value" && loger "$prop=$value reapplied"
+				eval value="\$$var"
+				resetprop "$prop" "$value" && loger "Reapplied $prop=$value"
 				relmkd
-
 				set +x
 				exec 3>&-
 			fi
@@ -726,7 +751,7 @@ fmiop() {
 		update_pressure_report
 		sleep 2
 	done &
-
 	new_pid=$!
 	save_pid "fmiop.pid" "$new_pid"
+	loger "fmiop running with PID $new_pid"
 }
