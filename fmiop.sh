@@ -415,7 +415,7 @@ dynamic_zram() {
 	done
 
 	if [ -z "$last_active_zram" ]; then
-		echo "No active zram partition found (unexpected error)."
+		loger "No active zram partition found (unexpected error)."
 		return 1
 	fi
 
@@ -506,7 +506,6 @@ dynamic_swapon() {
 		first_swap=$(echo "$available_swaps" | head -n 1)
 		loger "No active swap found. Activating swap file: $first_swap"
 		swapon -p $SWAP_PRIORITY $first_swap
-		return 0
 	fi
 
 	# Identify the last active swap file (by sorted order) among available swaps.
@@ -518,7 +517,7 @@ dynamic_swapon() {
 	done
 
 	if [ -z "$last_active_swap" ]; then
-		echo "No active swap file found (unexpected error)."
+		loger "No active swap file found (unexpected error)."
 		return 1
 	fi
 

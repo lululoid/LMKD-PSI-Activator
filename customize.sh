@@ -85,7 +85,7 @@ get_key_event() {
 	local event_file="$TMPDIR/events"
 
 	# Capture events
-	/system/bin/getevent -lqc 1 >"$event_file" 2>&1 &
+	timeout 5 /system/bin/getevent -lqc 1 >"$event_file" 2>&1 &
 
 	# Check for the specific event
 	grep -q "$event_type" "$event_file"
