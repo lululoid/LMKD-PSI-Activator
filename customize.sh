@@ -221,23 +221,13 @@ to Android 10+"
 EOF
 
 		apply_touch_issue_workaround
-		if [ -n "$miui_v_code" ]; then
-			echo "⟩ Applying lowmemorykiller properties
-	"
-			lmkd_apply
-
-			# Add workaround to keep MIUI from re-adding sys.lmk.minfree_levels property back
-			$MODPATH/fmiop_service.sh
-			kill -0 "$(read_pid fmiop.lmkd_loger.pid)" && uprint "
+		echo "⟩ Applying lowmemorykiller properties
+		"
+		lmkd_apply
+		$MODPATH/fmiop_service.sh
+		kill -0 "$(read_pid fmiop.lmkd_loger.pid)" && uprint "
 ⟩ LMKD PSI service keeper started
 "
-		else
-			echo "
-⟩ Applying lowmemorykiller properties
-	"
-			lmkd_props_clean
-			lmkd_apply
-		fi
 		relmkd
 		$MODPATH/log_service.sh
 	fi
@@ -247,8 +237,9 @@ if ! [ -f $LOG_FOLDER/.redempted ]; then
 	fix_mistakes
 fi
 
+cp $MODPATH/module.prop $LOG_FOLDER
+[ ! -f $LOG_FOLDER/config.yaml ] && cp $MODPATH/config.yaml $LOG_FOLDER
+
 set_permissions
 setup_swap
 main
-cp $MODPATH/module.prop $LOG_FOLDER
-[ ! -f $LOG_FOLDER/config.yaml ] && cp $MODPATH/config.yaml $LOG_FOLDER

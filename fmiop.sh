@@ -170,8 +170,8 @@ loger_watcher() {
 	logs="$1"
 	ten_mb=10485760
 
-	# exec 3>&-
-	# set +x
+	exec 3>&-
+	set +x
 
 	loger "Starting log watcher for files: $logs"
 
@@ -379,20 +379,21 @@ turnon_zram() {
 }
 
 # update_pressure_report - Updates the module.prop with current memory pressure
+last_memory_pressure=$(get_memory_pressure)
 update_pressure_report() {
-	local current_swappiness
+	local current_swappiness current_swappiness
 	memory_pressure=$(get_memory_pressure)
 	module_prop="$MODPATH/module.prop"
 	current_swappiness=$(cat /proc/sys/vm/swappiness)
 	prop_bcp="$LOG_FOLDER/module.prop"
-	content=$(cat $prop_bcp)
 
 	if [ $last_memory_pressure -ne "$memory_pressure" ]; then
 		loger "Updating memory pressure report to $memory_pressure"
 		last_memory_pressure=$memory_pressure
 	fi
 
-	echo "$content" | sed "s/\(Memory pressure.*= \)-\?[0-9]*,/\1$memory_pressure/;s/\(swappiness.*= \)-\?[0-9]*/\1$current_swappiness/" >$module_prop
+	desc=$(sed "s/\(Memory pressure.*= \)-\?[0-9]*,/\1$memory_pressure/;s/\(swappiness.*= \)-\?[0-9]*/\1$current_swappiness/" "$prop_bcp")
+	[ -n "$desc" ] && echo "$desc" >$module_prop
 }
 
 # save_pressures_to_vars - Stores pressure metrics from /proc/pressure into variables
