@@ -75,16 +75,13 @@ save_pid() {
 	echo "$pid_name=$pid_value" >>"$PID_DB"
 }
 
-read_pid() {
-	local pid_name=$1
-	local pid_value
-	pid_value=$(awk -F= -v name="$pid_name" '$1 == name {print $2}' "$PID_DB")
-	echo "$pid_value"
-}
-
 remove_pid() {
 	local pid_name=$1
 	sed -i "/^$pid_name=/d" "$PID_DB"
+}
+
+read_pid() {
+	grep "$1" "$PID_DB" | cut -d= -f2
 }
 
 kill_all_pids() {

@@ -28,14 +28,21 @@ start_services() {
 start_services
 last_checksum=$(get_config_checksum)
 
+kill_services() {
+	for id in fmiop.dynswap.pid fmiop.pid; do
+		pid=$(read_pid $id)
+		kill -9 $pid && loger "Killed $id with PID $pid"
+	done
+}
+
 # Monitoring loop
 monitor_config() {
 	while true; do
 		current_checksum=$(get_config_checksum)
 		if [ "$current_checksum" != "$last_checksum" ]; then
 			loger "Config file $CONFIG_FILE changed (checksum: $last_checksum -> $current_checksum)"
-			kill_all_pids
-			loger "Killed all previous PIDs"
+			kill_services
+			loger "Killed service PIDs"
 			start_services
 			last_checksum="$current_checksum"
 		fi

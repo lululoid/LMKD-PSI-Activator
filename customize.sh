@@ -248,4 +248,4 @@ set_permissions
 setup_swap
 main
 cp $MODPATH/module.prop $LOG_FOLDER
-cp $MODPATH/config.yaml $LOG_FOLDER
+[ ! -f $LOG_FOLDER/config.yaml ] && cp $MODPATH/config.yaml $LOG_FOLDER
