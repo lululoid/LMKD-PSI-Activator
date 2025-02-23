@@ -380,20 +380,22 @@ turnon_zram() {
 
 # update_pressure_report - Updates the module.prop with current memory pressure
 update_pressure_report() {
+	local current_swappiness
 	memory_pressure=$(get_memory_pressure)
 	module_prop="$MODPATH/module.prop"
+	current_swappiness=$(cat /proc/sys/vm/swappiness)
 
 	if [ $last_memory_pressure -ne "$memory_pressure" ]; then
-		loger "Updating memory pressure report to $memory_pressure%"
+		loger "Updating memory pressure report to $memory_pressure"
 		last_memory_pressure=$memory_pressure
 	fi
 
 	echo "id=fmiop
 name=LMKD PSI Activator
 version=v2.4-beta
-versionCode=972
+versionCode=977
 author=lululoid
-description=Memory pressure(lower is more pressure) = $memory_pressure. Fix RAM management by activating psi mode in LMKD which is more efficient, faster and more stable than traditional minfree_levels most ROMs use
+description=Memory pressure(lower is more pressure) = $memory_pressure, swappiness = $current_swappiness. Fix RAM management by activating psi mode in LMKD which is more efficient, faster and more stable than traditional minfree_levels most ROMs use
 " >"$module_prop"
 }
 
@@ -458,6 +460,7 @@ get_lst_spriority() {
 
 # dynamic_zram - Dynamically activates ZRAM partitions based on usage
 dynamic_zram() {
+	local idle=false
 	available_zrams=$(find $ZRAM_PATTERN 2>/dev/null | sort)
 
 	if [ -z "$available_zrams" ]; then
@@ -504,6 +507,7 @@ dynamic_zram() {
 
 	if [ "$usage_percent" -ge "$ZRAM_ACTIVATION_THRESHOLD" ]; then
 		next_zram=""
+		idle=false
 
 		for zram in $available_zrams; do
 			if ! is_active "$zram"; then
@@ -523,7 +527,8 @@ dynamic_zram() {
 			SWAP_PRIORITY="$LAST_ZPRIORITY"
 		fi
 	else
-		loger "ZRAM usage below $ZRAM_ACTIVATION_THRESHOLD%; no action needed"
+		! $idle && loger "ZRAM usage below $ZRAM_ACTIVATION_THRESHOLD%; no action needed"
+		idle=true
 	fi
 }
 
@@ -551,6 +556,7 @@ deactivate_zram_low_usage() {
 
 # dynamic_swapon - Dynamically activates swap files based on usage
 dynamic_swapon() {
+	local idle=false
 	available_swaps=$(find $SWAP_PATTERN 2>/dev/null | sort)
 
 	if [ -z "$available_swaps" ]; then
@@ -595,6 +601,8 @@ dynamic_swapon() {
 	loger "Swap file $last_active_swap usage: ${usage_percent}% (Threshold: $SWAP_ACTIVATION_THRESHOLD%)"
 	if [ "$usage_percent" -ge "$SWAP_ACTIVATION_THRESHOLD" ]; then
 		next_swap=""
+		idle=false
+
 		for swap in $available_swaps; do
 			if ! is_active "$swap"; then
 				next_swap="$swap"
@@ -609,7 +617,8 @@ dynamic_swapon() {
 			loger "No additional swap files available"
 		fi
 	else
-		loger "Swap usage below $SWAP_ACTIVATION_THRESHOLD%; no action needed"
+		! $idle && loger "Swap usage below $SWAP_ACTIVATION_THRESHOLD%; no action needed"
+		idle=true
 	fi
 }
 
