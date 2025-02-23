@@ -8,11 +8,41 @@ FOGIMP_PROPS=$NVBASE/modules/fogimp/system.prop
 SWAP_FILENAME=$NVBASE/fmiop_swap
 ZRAM_PRIORITY=32767
 SWAP_TIME=false
+CONFIG_FILE=$LOG_FOLDER/config.yaml
 
 export TAG LOGFILE LOG_FOLDER
 alias uprint="ui_print"
 alias resetprop="resetprop -v"
 alias sed='$MODPATH/sed'
+alias yq='$MODPATH/yq'
+
+read_config() {
+	local key="$1" default="$2" config_file="$CONFIG_FILE"
+	value=$(yq e "$key" "$config_file" 2>/dev/null)
+	[ "$value" = "null" ] || [ -z "$value" ] && value="$default"
+	echo "$value"
+}
+
+# Virtual Memory Settings
+ZRAM_ACTIVATION_THRESHOLD=$(read_config ".virtual_memory.zram.activation_threshold" 25)
+ZRAM_DEACTIVATION_THRESHOLD=$(read_config ".virtual_memory.zram.deactivation_threshold" 10)
+SWAP_ACTIVATION_THRESHOLD=$(read_config ".virtual_memory.swap.activation_threshold" 90)
+SWAP_DEACTIVATION_THRESHOLD=$(read_config ".virtual_memory.swap.deactivation_threshold" 25)
+
+# Dynamic Swappiness Settings
+SWAPPINESS_MAX=$(read_config ".dynamic_swappiness.swappiness_range.max" 140)
+SWAPPINESS_MIN=$(read_config ".dynamic_swappiness.swappiness_range.min" 80)
+CPU_PRESSURE_THRESHOLD=$(read_config ".dynamic_swappiness.threshold.cpu_pressure" 35)
+MEMORY_PRESSURE_THRESHOLD=$(read_config ".dynamic_swappiness.threshold.memory_pressure" 15)
+IO_PRESSURE_THRESHOLD=$(read_config ".dynamic_swappiness.threshold.io_pressure" 30)
+SWAPPINESS_STEP=$(read_config ".dynamic_swappiness.threshold.step" 2)
+
+# POSIX-compliant script for dynamic swap activation
+# Directory where swap files are stored
+SWAP_DIR="$NVBASE"
+SWAP_PATTERN="$SWAP_FILENAME*"
+ZRAM_DIR="/dev/block"
+ZRAM_PATTERN="$ZRAM_DIR/zram*"
 
 loger() {
 	local log=$1
@@ -349,11 +379,6 @@ get_lst_spriority() {
 }
 
 dynamic_zram() {
-	# POSIX-compliant script for dynamic zram activation
-	# Directory where zram partitions are stored
-	ZRAM_DIR="/dev/block"
-	ZRAM_PATTERN="$ZRAM_DIR/zram*"
-
 	# Get a sorted list of available zram partitions
 	available_zrams=$(ls $ZRAM_PATTERN 2>/dev/null | sort)
 
@@ -410,8 +435,8 @@ dynamic_zram() {
 	usage_percent=$((used * 100 / size))
 	loger "zram partition $last_active_zram usage: ${usage_percent}%"
 
-	# If usage is 90% or more, look for the next available (inactive) zram partition and activate it.
-	if [ "$usage_percent" -ge 25 ]; then
+	# If usage is $ZRAM_ACTIVATION_THRESHOLD or more, look for the next available (inactive) swap file and activate it.
+	if [ "$usage_percent" -ge $ZRAM_ACTIVATION_THRESHOLD ]; then
 		next_zram=""
 		for zram in $available_zrams; do
 			if ! is_active "$zram"; then
@@ -444,8 +469,9 @@ deactivate_zram_low_usage() {
 		size=$(echo "$zram_line" | awk '{print $3}')
 		used=$(echo "$zram_line" | awk '{print $4}')
 		# Calculate usage percentage (using integer arithmetic)
+		# Deactivate if usage is below threshold
 		usage_percent=$((used * 100 / size))
-		if [ "$usage_percent" -lt 10 ]; then
+		if [ "$usage_percent" -lt $ZRAM_DEACTIVATION_THRESHOLD ]; then
 			loger "Deactivating zram file $zram_file (usage: ${usage_percent}%)"
 			swapoff $zram_file
 			zram_logging_breaker=false
@@ -456,11 +482,6 @@ deactivate_zram_low_usage() {
 }
 
 dynamic_swapon() {
-	# POSIX-compliant script for dynamic swap activation
-	# Directory where swap files are stored
-	SWAP_DIR="$NVBASE"
-	SWAP_PATTERN="$SWAP_FILENAME*"
-
 	# Get a sorted list of available swap files
 	available_swaps=$(ls $SWAP_PATTERN 2>/dev/null | sort)
 
@@ -517,8 +538,8 @@ dynamic_swapon() {
 	usage_percent=$((used * 100 / size))
 	loger "Swap file $last_active_swap usage: ${usage_percent}%"
 
-	# If usage is 90% or more, look for the next available (inactive) swap file and activate it.
-	if [ "$usage_percent" -ge 90 ]; then
+	# If usage is $SWAP_ACTIVATION_THRESHOLD or more, look for the next available (inactive) swap file and activate it.
+	if [ "$usage_percent" -ge $SWAP_ACTIVATION_THRESHOLD ]; then
 		next_swap=""
 		for swap in $available_swaps; do
 			if ! is_active "$swap"; then
@@ -550,7 +571,7 @@ deactivate_swap_low_usage() {
 		used=$(echo "$swap_line" | awk '{print $4}')
 		# Calculate usage percentage (using integer arithmetic)
 		usage_percent=$((used * 100 / size))
-		if [ "$usage_percent" -lt 25 ]; then
+		if [ "$usage_percent" -lt $SWAP_DEACTIVATION_THRESHOLD ]; then
 			loger "Deactivating swap file $swap_file (usage: ${usage_percent}%)"
 			swapoff $swap_file
 			swap_logging_breaker=false
@@ -568,14 +589,14 @@ adjust_swappiness_dynamic() {
 	local dyn_sw=true
 
 	# Define thresholds for pressure metrics
-	cpu_high_limit=35
-	mem_high_limit=15 # Adjusted from 23
-	io_limit=30       # Adjusted from 23
-	step=2            # Can be increased to 6 for low-RAM devices
+	cpu_high_limit=$CPU_PRESSURE_THRESHOLD
+	mem_high_limit=$MEMORY_PRESSURE_THRESHOLD
+	io_limit=$IO_PRESSURE_THRESHOLD
+	step=$SWAPPINESS_STEP
 
 	# Swappiness clamp limit
-	swap_max_limit=140
-	swap_min_limit=80 # Adjusted from 30
+	swap_max_limit=$SWAPPINESS_MAX
+	swap_min_limit=$SWAPPINESS_MIN
 
 	while true; do
 		exec 3>&1

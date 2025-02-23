@@ -28,6 +28,7 @@ alias swapon="$BIN/swapon"
 set_permissions() {
 	set_perm_recursive "$MODPATH" 0 0 0755 0644
 	set_perm_recursive "$MODPATH/sed" 0 2000 0755 0755
+	set_perm_recursive "$MODPATH/yq" 0 2000 0755 0755
 	set_perm_recursive "$MODPATH/fmiop.sh" 0 2000 0755 0755
 	set_perm_recursive "$MODPATH/fmiop_service.sh" 0 2000 0755 0755
 	set_perm_recursive "$MODPATH/log_service.sh" 0 2000 0755 0755
@@ -226,3 +227,4 @@ set_permissions
 setup_swap
 main
 cp $MODPATH/module.prop $LOG_FOLDER
+cp $MODPATH/config.yaml $LOG_FOLDER

@@ -6,5 +6,43 @@ set -x # Prints commands, prefixing them with a character stored in an environme
 
 . $MODPATH/fmiop.sh
 
-fmiop
-adjust_swappiness_dynamic
+get_config_checksum() {
+	if [ -f "$CONFIG_FILE" ]; then
+		md5sum "$CONFIG_FILE" 2>/dev/null | awk '{print $1}' || echo "no_hash"
+		return 0
+	else
+		loger "missing config"
+	fi
+
+	return 1
+}
+
+start_services() {
+	fmiop
+	loger "Started fmiop with PID $!"
+	adjust_swappiness_dynamic
+	loger "Started adjust_swappiness_dynamic with PID $!"
+}
+
+# Initial run
+start_services
+last_checksum=$(get_config_checksum)
+
+# Monitoring loop
+monitor_config() {
+	while true; do
+		current_checksum=$(get_config_checksum)
+		if [ "$current_checksum" != "$last_checksum" ]; then
+			loger "Config file $CONFIG_FILE changed (checksum: $last_checksum -> $current_checksum)"
+			kill_all_pids
+			loger "Killed all previous PIDs"
+			start_services
+			last_checksum="$current_checksum"
+		fi
+		sleep 5 # Check every 5 seconds
+	done
+}
+
+# Run monitor in background
+monitor_config &
+loger "Started config monitor with PID $!"
