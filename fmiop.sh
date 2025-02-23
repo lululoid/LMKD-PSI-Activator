@@ -281,11 +281,14 @@ turnon_zram() {
 update_pressure_report() {
 	memory_pressure=$(get_memory_pressure)
 	module_prop="$MODPATH/module.prop"
-	prop_bcp="$LOG_FOLDER/module.prop"
-	tmp_file=$(mktemp -p /data/local/tmp)
-	content=$(cat $prop_bcp)
 
-	echo "$content" | sed "s/\(Memory pressure.*= \)-\?[0-9]*/\1$memory_pressure/" >$tmp_file && mv $tmp_file $module_prop
+	echo "id=fmiop
+name=LMKD PSI Activator
+version=v2.3-alpha
+versionCode=945
+author=lululoid
+description=Memory pressure(lower is more pressure) = -1. Fix RAM management by activating psi mode in LMKD which is more efficient, faster and more stable than traditional minfree_levels most ROMs use
+" | sed "s/\(Memory pressure.*= \)-\?[0-9]*/\1$memory_pressure/" >$module_prop
 }
 
 save_pressures_to_vars() {
@@ -408,7 +411,7 @@ dynamic_zram() {
 	loger "zram partition $last_active_zram usage: ${usage_percent}%"
 
 	# If usage is 90% or more, look for the next available (inactive) zram partition and activate it.
-	if [ "$usage_percent" -ge 50 ]; then
+	if [ "$usage_percent" -ge 25 ]; then
 		next_zram=""
 		for zram in $available_zrams; do
 			if ! is_active "$zram"; then
