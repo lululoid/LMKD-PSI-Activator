@@ -384,19 +384,15 @@ update_pressure_report() {
 	memory_pressure=$(get_memory_pressure)
 	module_prop="$MODPATH/module.prop"
 	current_swappiness=$(cat /proc/sys/vm/swappiness)
+	prop_bcp="$LOG_FOLDER/module.prop"
+	content=$(cat $prop_bcp)
 
 	if [ $last_memory_pressure -ne "$memory_pressure" ]; then
 		loger "Updating memory pressure report to $memory_pressure"
 		last_memory_pressure=$memory_pressure
 	fi
 
-	echo "id=fmiop
-name=LMKD PSI Activator
-version=v2.4-beta
-versionCode=981
-author=lululoid
-description=Memory pressure(lower is more pressure) = $memory_pressure, swappiness = $current_swappiness. Fix RAM management by activating psi mode in LMKD which is more efficient, faster and more stable than traditional minfree_levels most ROMs use
-" >"$module_prop"
+	echo "$content" | sed "s/\(Memory pressure.*= \)-\?[0-9]*,/\1$memory_pressure/;s/\(swappiness.*= \)-\?[0-9]*/\1$current_swappiness/" >$module_prop
 }
 
 # save_pressures_to_vars - Stores pressure metrics from /proc/pressure into variables

@@ -41,7 +41,6 @@ fi
 
 # Update module.prop with the new version and versionCode
 sed -i "s/\(^version=v\)[0-9.]*\(.*\)/\1$version\2/; s/\(^versionCode=\)[0-9]*/\1$versionCode/" module.prop
-sed -i "s/\(^version=v\)[0-9.]*\(.*\)/\1$version\2/; s/\(^versionCode=\)[0-9]*/\1$versionCode/" fmiop.sh
 
 # Extract module name
 module_name=$(sed -n 's/^id=\(.*\)/\1/p' module.prop)
