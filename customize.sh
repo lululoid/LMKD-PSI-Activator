@@ -44,14 +44,14 @@ lmkd_apply() {
 		cat <<EOF >>$MODPATH/system.prop
 ro.config.low_ram=true
 ro.lmk.use_psi=true
-ro.lmk.debug=true
+ro.lmk.debug=false
 ro.lmk.use_minfree_levels=false
 EOF
 	else
 		cat <<EOF >>$MODPATH/system.prop
 ro.config.low_ram=false
 ro.lmk.use_psi=true
-ro.lmk.debug=true
+ro.lmk.debug=false
 ro.lmk.use_minfree_levels=false
 EOF
 	fi

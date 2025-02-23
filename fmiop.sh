@@ -110,7 +110,7 @@ lmkd_loger() {
 		remove_pid "fmiop.lmkd_loger.pid"
 	fi
 
-	$BIN/logcat -v time --pid=$(pidof lmkd) -r "$((5 * 1024))" -n 4 --file=$log_file &
+	$BIN/logcat -v time --pid=$(pidof lmkd) -r "$((5 * 1024))" -n 2 --file=$log_file &
 	if [ $? -ne 0 ]; then
 		loger "Failed to start logcat"
 		return 1
@@ -120,35 +120,32 @@ lmkd_loger() {
 }
 
 loger_watcher() {
-	local log_size today_date log new_pid
 	logs="$1"
+	ten_mb=10485760
 
-	exec 3>&-
-	set +x
+	# exec 3>&-
+	# set +x
 
 	while true; do
 		for log in $logs; do
 			log_size=$(check_file_size "$log")
-			if [ "$log_size" -ge 10485760 ]; then
+			if [ $log_size -ge $ten_mb ]; then
 				exec 3>&1
 				set -x
 
-				today_date=$(date +%R-%a-%d-%m-%Y)
-				new_log_file="${log%.log}_$today_date.log"
+				log_count=$(find "${log%.log}"* | wc -l)
+				new_log_file="$log.$log_count"
 
 				cp "$log" "$new_log_file"
 				echo "" >$log
-				logrotate ${log%.log}*.log
+				logrotate "$log.*"
 
 				exec 3>&-
 				set +x
 			fi
 		done
 		sleep 2
-	done &
-
-	new_pid=$!
-	save_pid "fmiop.lmkd_loger_watcher.pid" "$new_pid"
+	done
 }
 
 rm_prop() {

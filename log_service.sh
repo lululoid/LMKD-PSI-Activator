@@ -9,4 +9,5 @@ set -x # Prints commands, prefixing them with a character stored in an environme
 log="$LOG_FOLDER/fmiop.log"
 logrotate ${log%.log}*.log
 lmkd_loger $LOG_FOLDER/lmkd.log
-loger_watcher $LOG_FOLDER/*.log
+loger_watcher "$LOG_FOLDER/*.log" &
+save_pid "fmiop.lmkd_loger_watcher.pid" "$!"
