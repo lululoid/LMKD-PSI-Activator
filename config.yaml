@@ -6,6 +6,7 @@ virtual_memory:
   swap:
     activation_threshold: 90
     deactivation_threshold: 25
+
 dynamic_swappiness:
   swappiness_range:
     max: 140

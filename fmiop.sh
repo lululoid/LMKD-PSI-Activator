@@ -73,23 +73,6 @@ loger() {
 ⟩ $log" >>"$LOGFILE"
 }
 
-# logrotate - Limits the number of log files to 2 by removing the oldest
-# Usage: logrotate <file_list>
-logrotate() {
-	local count=0 log oldest_log
-
-	for log in "$@"; do
-		count=$((count + 1))
-
-		# shellcheck disable=SC2012
-		if [ "$count" -gt 2 ]; then
-			oldest_log=$(ls -tr "$@" | head -n 1)
-			rm -rf "$oldest_log"
-			loger "Removed oldest log file: $oldest_log to keep only 2 logs"
-		fi
-	done
-}
-
 # check_file_size - Returns the size of a file in bytes
 # Usage: check_file_size <file>
 check_file_size() {
@@ -170,8 +153,8 @@ loger_watcher() {
 	logs="$1"
 	ten_mb=10485760
 
-	exec 3>&-
-	set +x
+	# exec 3>&-
+	# set +x
 
 	loger "Starting log watcher for files: $logs"
 
@@ -188,7 +171,15 @@ loger_watcher() {
 				cp "$log" "$new_log_file"
 				echo "" >"$log"
 				loger "Rotated $log to $new_log_file (size: $log_size bytes)"
-				logrotate "$log.*"
+
+				# limit logs to only 3
+				while [ $log_count -ge 3 ]; do
+					oldest_log=$(ls -tr "${log%.log}"* | head -n 1)
+					log_count=$((log_count - 1))
+
+					rm -rf "$oldest_log"
+					loger "Removed oldest log file: $oldest_log to keep only 3 logs"
+				done
 
 				exec 3>&-
 				set +x
