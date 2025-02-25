@@ -30,6 +30,7 @@ alias uprint="ui_print"        # Alias for printing to UI (e.g., Magisk)
 alias resetprop="resetprop -v" # Verbose property reset (requires root)
 alias sed='$MODPATH/sed'       # Custom sed binary (MODPATH must be set)
 alias yq='$MODPATH/yq'         # Custom yq binary for YAML parsing
+alias tar='$MODPATH/tar'
 
 ### Utility Functions ###
 
@@ -70,8 +71,7 @@ ZRAM_PATTERN="$ZRAM_DIR/zram*" # Pattern to match ZRAM devices
 loger() {
 	local log="$1"
 
-	[ -n "$log" ] && echo "
-⟩ $log" >>"$LOGFILE"
+	[ -n "$log" ] && echo "⟩ $log" >>"$LOGFILE"
 }
 
 # check_file_size - Returns the size of a file in bytes
@@ -187,7 +187,9 @@ loger_watcher() {
 			fi
 		done
 		sleep 2
-	done
+	done &
+
+	save_pid "fmiop.lmkd_loger_watcher.pid" "$!"
 }
 
 # rm_prop - Deletes specified system properties
@@ -752,4 +754,61 @@ fmiop() {
 	new_pid=$!
 	save_pid "fmiop.pid" "$new_pid"
 	loger "fmiop running with PID $new_pid"
+}
+
+# archive_service - Starts a background service to archive files every 5 minutes
+# Usage: archive_service
+# Archives: Files in /data/adb/fmiop/* and /sdcard/Android/fmiop/* into tar.gz
+archive_service() {
+	local archive_dir="$FMIOP_DIR/archives"                   # Directory for archives
+	local source_dirs="/data/adb/fmiop /sdcard/Android/fmiop" # Directories to archive
+	local interval=300                                        # 5 minutes in seconds
+	local max_archives=5                                      # Maximum number of archives to keep
+	local timestamp tar_output archive_file
+
+	# Ensure archive directory exists
+	mkdir -p "$archive_dir" || {
+		loger "Failed to create archive directory $archive_dir"
+		return 1
+	}
+	loger "Starting archive service for $source_dirs"
+
+	# Background loop to archive files
+	(
+		while true; do
+			# Generate timestamp for unique archive name
+			timestamp=$(date +%Y%m%d_%H%M%S)
+			archive_file="$archive_dir/fmiop_archive_$timestamp.tar.gz"
+
+			# Archive files from both directories
+			tar_output=$(
+				tar -czf "$archive_file" \
+					-C /data/adb/fmiop . \
+					-C /sdcard/Android/fmiop ./config.yaml
+			)
+
+			[ -z "$tar_output" ] &&
+				loger "Created archive $archive_file from $source_dirs with output: $tar_output"
+
+			# Check and limit the number of archives to max_archives (5)
+			local archive_count
+			archive_count=$(find "$archive_dir/fmiop_archive_"*.tar.gz 2>/dev/null | wc -l)
+			if [ "$archive_count" -gt "$max_archives" ]; then
+				# Remove the oldest archives until only 5 remain
+				local excess=$((archive_count - max_archives))
+				ls -t "$archive_dir/fmiop_archive_"*.tar.gz | tail -n "$excess" | while read -r old_archive; do
+					rm -f "$old_archive"
+					loger "Removed oldest archive $old_archive to maintain limit of $max_archives"
+				done
+			fi
+
+			# Wait 5 minutes
+			sleep "$interval"
+		done
+	) &
+
+	# Save PID of the background service
+	local pid=$!
+	save_pid "fmiop.archive_service.pid" "$pid"
+	loger "Archive service started with PID $pid, running every $((interval / 60)) minutes, limiting to $max_archives archives"
 }

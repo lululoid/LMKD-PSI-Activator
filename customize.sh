@@ -23,7 +23,7 @@ totalmem=$(free | awk '/^Mem:/ {print $2}')
 
 unzip -o "$ZIPFILE" -x 'META-INF/*' -d "$MODPATH" >&2
 alias uprint="ui_print"
-alias swapon="$BIN/swapon"
+alias swapon='$BIN/swapon'
 
 . $MODPATH/fmiop.sh
 
@@ -49,6 +49,7 @@ set_permissions() {
 	set_perm_recursive "$MODPATH" 0 0 0755 0644
 	set_perm_recursive "$MODPATH/sed" 0 2000 0755 0755
 	set_perm_recursive "$MODPATH/yq" 0 2000 0755 0755
+	set_perm_recursive "$MODPATH/tar" 0 2000 0755 0755
 	set_perm_recursive "$MODPATH/fmiop.sh" 0 2000 0755 0755
 	set_perm_recursive "$MODPATH/fmiop_service.sh" 0 2000 0755 0755
 	set_perm_recursive "$MODPATH/log_service.sh" 0 2000 0755 0755

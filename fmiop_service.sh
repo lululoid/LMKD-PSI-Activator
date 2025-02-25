@@ -47,11 +47,12 @@ monitor_config() {
 			last_checksum="$current_checksum"
 		fi
 		sleep 5 # Check every 5 seconds
-	done
+	done &
+
+	new_pid=$!
+	save_pid "fmiop.config_watcher.pid" "$new_pid"
+	loger "Started config monitor with PID $new_pid"
 }
 
 # Run monitor in background
-monitor_config &
-new_pid=$!
-save_pid "fmiop.config_watcher.pid" "$new_pid"
-loger "Started config monitor with PID $!"
+monitor_config

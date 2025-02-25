@@ -72,7 +72,7 @@ package_name="packages/$module_name-v${version}_$versionCode-$TAG.zip"
 	cleaner.zip \
 	./*service.sh \
 	sed \
-	yq \
+	yq tar \
 	config.yaml \
 	$fogimp_pkg
 
