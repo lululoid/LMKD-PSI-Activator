@@ -19,7 +19,8 @@ FOGIMP_PROPS="$NVBASE/modules/fogimp/system.prop" # External properties file for
 SWAP_FILENAME="$NVBASE/fmiop_swap"                # Base name for swap files
 ZRAM_PRIORITY=32767                               # Priority for ZRAM swaps (max value)
 SWAP_TIME=false                                   # Flag to switch between ZRAM and file-based swap
-CONFIG_FILE="$LOG_FOLDER/config.yaml"             # YAML config file for thresholds and settings
+FMIOP_DIR=/sdcard/Android/fmiop
+CONFIG_FILE="$FMIOP_DIR/config.yaml" # YAML config file for thresholds and settings
 
 # Export variables for use in sourced scripts or subprocesses
 export TAG LOGFILE LOG_FOLDER

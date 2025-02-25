@@ -238,7 +238,10 @@ if ! [ -f $LOG_FOLDER/.redempted ]; then
 fi
 
 cp $MODPATH/module.prop $LOG_FOLDER
-[ ! -f $LOG_FOLDER/config.yaml ] && cp $MODPATH/config.yaml $LOG_FOLDER
+if [ ! -f $CONFIG_FILE ]; then
+	mkdir -p $FMIOP_DIR
+	cp $MODPATH/config.yaml $FMIOP_DIR
+fi
 
 set_permissions
 setup_swap
