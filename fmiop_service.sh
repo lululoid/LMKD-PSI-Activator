@@ -18,6 +18,7 @@ get_config_checksum() {
 }
 
 start_services() {
+	. $MODPATH/vars.sh
 	fmiop
 	loger "Started fmiop with PID $!"
 	adjust_swappiness_dynamic
