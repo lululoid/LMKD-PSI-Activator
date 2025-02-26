@@ -8,12 +8,12 @@
 # Note: This script assumes fmiop.sh and related services are in MODDIR.
 
 ### Configuration ###
-MODDIR=${0%/*}                         # Directory of this script
-[ -z "$MODPATH" ] && MODPATH="$MODDIR" # Set MODPATH if not defined externally
-NVBASE=/data/adb                       # Base directory for logs and data
-BIN=/system/bin                        # Directory for system binaries
-LOG_FOLDER="$NVBASE/fmiop"             # Directory for fmiop logs
-LOG="$LOG_FOLDER/fmiop.log"            # Main log file
+MODDIR=${0%/*}                # Directory of this script
+MODPATH="${MODDIR:-$MODPATH}" # Set MODPATH if not defined externally
+NVBASE=/data/adb              # Base directory for logs and data
+BIN=/system/bin               # Directory for system binaries
+LOG_FOLDER="$NVBASE/fmiop"    # Directory for fmiop logs
+LOG="$LOG_FOLDER/fmiop.log"   # Main log file
 
 ### Setup Logging ###
 # Redirect stdout and stderr to LOG, keep fd 3 for original stdout

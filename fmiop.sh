@@ -10,6 +10,8 @@
 # Disabled ShellCheck warnings for local vars (3043), string trimming (3060),
 # word splitting (2086), and command substitution splitting (2046).
 
+# Need to set MODPATH, NVBASE and BIN in the environtment to use this script
+
 ### Configuration ###
 TAG="fmiop"                                       # Unique identifier for the script
 LOG_FOLDER="$NVBASE/$TAG"                         # Log directory (NVBASE must be set, e.g., /data/adb)
@@ -26,7 +28,6 @@ CONFIG_FILE="$FMIOP_DIR/config.yaml" # YAML config file for thresholds and setti
 export TAG LOGFILE LOG_FOLDER
 
 ### Aliases ###
-alias uprint="ui_print"        # Alias for printing to UI (e.g., Magisk)
 alias resetprop="resetprop -v" # Verbose property reset (requires root)
 alias sed='$MODPATH/sed'       # Custom sed binary (MODPATH must be set)
 alias yq='$MODPATH/yq'         # Custom yq binary for YAML parsing
@@ -802,4 +803,104 @@ archive_service() {
 	local pid=$!
 	save_pid "fmiop.archive_service.pid" "$pid"
 	loger "Archive service started with PID $pid, running every $((interval / 60)) minutes, limiting to $max_archives archives"
+}
+
+# Function to get key events
+get_key_event() {
+	local event_type="$1"
+	local event_file="$TMPDIR/events"
+
+	if [ -n "$capture_pid" ] && ! kill -0 $capture_pid; then
+		unset capture_pid
+	elif [ -z "$capture_pid" ]; then
+		getevent -lq >$event_file &
+		capture_pid=$!
+	fi
+
+	result=$(tail -n2 "$event_file" | grep "$event_type")
+	[ -n "$result" ] && sleep 0.25 && return 0 || return 1
+}
+
+# Function to handle SWAP size logic
+handle_swap_size() {
+	if [ $count -eq 0 ]; then
+		swap_size=0
+		swap_in_gb=0
+		uprint "  $count. 0 SWAP --⟩ RECOMMENDED"
+		count=$((count + 1))
+	elif [ $swap_in_gb -lt $totalmem_gb ]; then
+		swap_in_gb=$((swap_in_gb + 1))
+		uprint "  $count. ${swap_in_gb}GB of SWAP"
+		swap_size=$((swap_in_gb * one_gb))
+		count=$((count + 1))
+	elif [ $swap_in_gb -ge $totalmem_gb ]; then
+		swap_size=$totalmem
+		count=0
+		swap_in_gb=0
+	fi
+}
+
+# Main loop to handle user input and adjust SWAP size
+setup_swap_size() {
+	local one_gb totalmem_gb count swap_in_gb totalmem
+	totalmem=$(free | awk '/^Mem:/ {print $2}')
+	one_gb=$((1024 * 1024))
+	totalmem_gb=$(((totalmem / 1024 / 1024) + 1))
+	count=0
+	swap_in_gb=0
+	hundred_mb=$((one_gb / 10))
+	quarter_gb=$((one_gb / 4))
+	swap_size=0
+
+	uprint "
+⟩ Please select SWAP size 
+  Press VOLUME + to use DEFAULT
+  Press VOLUME - to SELECT 
+  DEFAULT is 0 SWAP
+  "
+
+	while true; do
+		if get_key_event 'KEY_VOLUMEDOWN *DOWN'; then
+			exec 3>&1
+			set -x
+			handle_swap_size
+			exec 3>&-
+			set +x
+		elif get_key_event 'KEY_VOLUMEUP *DOWN'; then
+			break
+		fi
+	done
+	kill -9 $capture_pid
+}
+
+make_swap() {
+	dd if=/dev/zero of="$2" bs=1024 count="$1" >/dev/null
+	mkswap -L fmiop_swap "$2" >/dev/null
+	chmod 0600 "$2"
+}
+
+setup_swap() {
+	local swap_filename free_space swap_size
+	swap_filename=$NVBASE/fmiop_swap
+	free_space=$(df /data | sed -n '2p' | sed 's/[^0-9 ]*//g' | sed ':a;N;$!ba;s/\n/ /g' | awk '{print $4}')
+
+	if [ ! -f "$swap_filename.1" ]; then
+		setup_swap_size
+		if [ "$free_space" -ge "$swap_size" ] && [ "$swap_size" != 0 ]; then
+			uprint "
+⟩ Starting making SWAP. Please wait a moment...
+  $((free_space / 1024))MB available. $((swap_size / 1024))MB needed
+	"
+			zram_priority=$(grep "/dev/block/zram0" /proc/swaps | awk '{print $5}')
+			swap_count=$((swap_size / quarter_gb))
+			for num in $(seq $swap_count); do
+				make_swap "$quarter_gb" "$swap_filename.$num"
+			done
+		elif [ $swap_size -eq 0 ]; then
+			:
+		else
+			uprint "
+⟩ Storage full. Please free up your storage"
+		fi
+	fi
 }

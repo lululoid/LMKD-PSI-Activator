@@ -41,7 +41,7 @@ $file size: $file_size is emptied."
 	done || return 1
 
 	rm -rf $LOG_FOLDER/lmkd.log.*
-	rm -rf "${LOG_FOLDER:?}/${SWAP_FILENAME:?}."*
+	rm -rf "${LOG_FOLDER:?}/${SWAP_FILENAME:?}*"
 	touch $LOG_FOLDER/.redempted
 }
 
@@ -84,99 +84,6 @@ EOF
   RAM is better utilized with something useful than left unused"
 }
 
-# Function to get key events
-get_key_event() {
-	local event_type="$1"
-	local event_file="$TMPDIR/events"
-
-	# Capture events
-	timeout 5 /system/bin/getevent -lqc 1 >"$event_file" 2>&1 &
-
-	# Check for the specific event
-	grep -q "$event_type" "$event_file"
-}
-
-# Function to handle SWAP size logic
-handle_swap_size() {
-	if [ $count -eq 0 ]; then
-		swap_size=0
-		swap_in_gb=0
-		uprint "  $count. 0 SWAP --⟩ RECOMMENDED"
-	elif [ $swap_in_gb -lt $totalmem_gb ]; then
-		swap_in_gb=$((swap_in_gb + 1))
-		uprint "  $count. ${swap_in_gb}GB of SWAP"
-		swap_size=$((swap_in_gb * one_gb))
-	fi
-
-	count=$((count + 1))
-}
-
-# Main loop to handle user input and adjust SWAP size
-setup_swap_size() {
-	local one_gb=$((1024 * 1024))
-	local totalmem_gb=$(((totalmem / 1024 / 1024) + 1))
-	local count=0
-	local swap_in_gb=0
-	hundred_mb=$((one_gb / 10))
-	swap_size=0
-
-	uprint "
-⟩ Please select SWAP size 
-  Press VOLUME + to use DEFAULT
-  Press VOLUME - to SELECT 
-  DEFAULT is 0 SWAP
-  "
-
-	set +x
-	exec 3>&-
-
-	while true; do
-		if get_key_event 'KEY_VOLUMEDOWN *DOWN'; then
-			handle_swap_size
-		elif [ $swap_in_gb -eq $totalmem_gb ] && [ $count != 0 ]; then
-			swap_size=$totalmem
-			count=0
-		elif get_key_event 'KEY_VOLUMEUP *DOWN'; then
-			break
-		fi
-	done
-
-	set -x
-	exec 3>&1
-}
-
-make_swap() {
-	dd if=/dev/zero of="$2" bs=1024 count="$1" >/dev/null
-	mkswap -L fmiop_swap "$2" >/dev/null
-	chmod 0600 "$2"
-}
-
-setup_swap() {
-	local swap_filename free_space
-	swap_filename=$NVBASE/fmiop_swap
-	free_space=$(df /data | sed -n '2p' | sed 's/[^0-9 ]*//g' | sed ':a;N;$!ba;s/\n/ /g' | awk '{print $4}')
-
-	if [ ! -f "$swap_filename.1" ]; then
-		setup_swap_size
-		if [ "$free_space" -ge "$swap_size" ] && [ "$swap_size" != 0 ]; then
-			uprint "
-⟩ Starting making SWAP. Please wait a moment...
-  $((free_space / 1024))MB available. $((swap_size / 1024))MB needed
-	"
-			zram_priority=$(grep "/dev/block/zram0" /proc/swaps | awk '{print $5}')
-			swap_count=$((swap_size / hundred_mb))
-			for num in $(seq $swap_count); do
-				make_swap "$hundred_mb" "$swap_filename.$num"
-			done
-		elif [ $swap_size -eq 0 ]; then
-			:
-		else
-			uprint "
-⟩ Storage full. Please free up your storage"
-		fi
-	fi
-}
-
 apply_touch_issue_workaround() {
 	# Add workaround for MIUI touch issue when LMKD is in PSI mode
 	# because despite its beauty MIUI is having weird issues
@@ -203,6 +110,7 @@ EOF
 			break
 		fi
 	done
+	kill -9 $capture_pid
 }
 
 main() {

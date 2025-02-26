@@ -72,6 +72,7 @@ package_name="packages/$module_name-v${version}_$versionCode-$TAG.zip"
 	cleaner.zip \
 	./*service.sh \
 	vars.sh \
+	action.sh \
 	sed \
 	yq tar \
 	config.yaml \
