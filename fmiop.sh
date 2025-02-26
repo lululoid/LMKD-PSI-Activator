@@ -852,12 +852,14 @@ setup_swap_size() {
 	quarter_gb=$((one_gb / 4))
 	swap_size=0
 
+	exec 3>&-
+	set +x
+
 	uprint "
 ⟩ Please select SWAP size 
   Press VOLUME + to use DEFAULT
   Press VOLUME - to SELECT 
-  DEFAULT is 0 SWAP
-  "
+  DEFAULT is 0 SWAP"
 
 	while true; do
 		if get_key_event 'KEY_VOLUMEDOWN *DOWN'; then
@@ -877,14 +879,16 @@ make_swap() {
 	dd if=/dev/zero of="$2" bs=1024 count="$1" >/dev/null
 	mkswap -L fmiop_swap "$2" >/dev/null
 	chmod 0600 "$2"
+	uprint "  › Swap: $2, size: $(($1 / 1024))MB is made"
 }
 
 setup_swap() {
-	local swap_filename free_space swap_size
+	local swap_filename free_space swap_size available_swaps
 	swap_filename=$NVBASE/fmiop_swap
 	free_space=$(df /data | sed -n '2p' | sed 's/[^0-9 ]*//g' | sed ':a;N;$!ba;s/\n/ /g' | awk '{print $4}')
+	available_swaps=$(find $SWAP_PATTERN 2>/dev/null | sort)
 
-	if [ ! -f "$swap_filename.1" ]; then
+	if [ -z "$available_swaps" ]; then
 		setup_swap_size
 		if [ "$free_space" -ge "$swap_size" ] && [ "$swap_size" != 0 ]; then
 			uprint "
@@ -896,11 +900,14 @@ setup_swap() {
 			for num in $(seq $swap_count); do
 				make_swap "$quarter_gb" "$swap_filename.$num"
 			done
+			uprint "  › SWAP creation is done."
 		elif [ $swap_size -eq 0 ]; then
 			:
 		else
 			uprint "
 ⟩ Storage full. Please free up your storage"
 		fi
+	else
+		uprint "⟩ SWAP already exists, remove them first"
 	fi
 }

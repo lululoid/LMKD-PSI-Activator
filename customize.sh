@@ -2,8 +2,9 @@
 # shellcheck disable=SC3043,SC2034,SC2086,SC3060,SC3010
 # save full logging
 NVBASE=/data/adb
-LOG_FOLDER=$NVBASE/fmiop
-LOG=$LOG_FOLDER/fmiop.log
+TAG=fmiop
+LOG_FOLDER=$NVBASE/$TAG
+LOG=$LOG_FOLDER/${TAG}.log
 
 mkdir -p $LOG_FOLDER
 
@@ -125,10 +126,9 @@ tweaks won't be applied. Please upgrade your phone
 to Android 10+"
 	else
 		miui_v_code=$(resetprop ro.miui.ui.version.code)
-		cat <<EOF
+		uprint "
 ⟩ Total memory = $(free -h | awk '/^Mem:/ {print $2}')
-
-EOF
+"
 
 		apply_touch_issue_workaround
 		echo "⟩ Applying lowmemorykiller properties
@@ -148,6 +148,8 @@ if ! [ -f $LOG_FOLDER/.redempted ]; then
 fi
 
 cp $MODPATH/module.prop $LOG_FOLDER
+cp $MODPATH/action.sh /data/adb/modules/$TAG
+cp $MODPATH/fmiop.sh /data/adb/modules/$TAG
 if [ ! -f $CONFIG_FILE ]; then
 	mkdir -p $FMIOP_DIR
 	cp $MODPATH/config.yaml $FMIOP_DIR

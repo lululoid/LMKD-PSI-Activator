@@ -21,11 +21,9 @@ alias swapon='$BIN/swapon'
 remove_previous_swap() {
 	local available_swaps swap
 
-	uprint "
-⟩ Please select your option
-  Press VOLUME + to use REMOVE
-  Press VOLUME - to SELECT 
-  DEFAULT is 0 SWAP
+	uprint "⟩ Please select your option
+  Press VOLUME + to use REMOVE existing SWAP
+  Press VOLUME - to cancel
   "
 
 	while true; do
@@ -34,10 +32,14 @@ remove_previous_swap() {
 
 			for swap in $available_swaps; do
 				swapoff $swap
-				rm -rf $swap && uprint "  Swap file: $swap removed."
+				rm -rf $swap && uprint "  › Swap file: $swap removed."
 			done
+
+			uprint "
+⟩ Press action again to remake SWAP."
 			break
 		elif get_key_event 'KEY_VOLUMEDOWN *DOWN'; then
+			uprint "  › Action cancelled."
 			break
 		fi
 	done
@@ -45,6 +47,7 @@ remove_previous_swap() {
 }
 
 if [ ! -f $SWAP_PATTERN ]; then
+	uprint "⟩ Remaking SWAP option"
 	setup_swap
 else
 	remove_previous_swap
