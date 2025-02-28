@@ -486,8 +486,6 @@ dynamic_zram() {
 	used=$(echo "$zram_line" | awk '{print $4}')
 	usage_percent=$((used * 100 / size))
 
-	loger "ZRAM $last_active_zram usage: ${usage_percent}% (Threshold: $ZRAM_ACTIVATION_THRESHOLD%)"
-
 	if [ "$usage_percent" -ge "$ZRAM_ACTIVATION_THRESHOLD" ]; then
 		next_zram=""
 		idle=false
@@ -510,7 +508,11 @@ dynamic_zram() {
 			SWAP_PRIORITY="$LAST_ZPRIORITY"
 		fi
 	else
-		! $idle && loger "ZRAM usage below $ZRAM_ACTIVATION_THRESHOLD%; no action needed"
+		if $idle; then
+			idle=false
+			loger "ZRAM usage below $ZRAM_ACTIVATION_THRESHOLD%; no action needed"
+			loger "ZRAM $last_active_zram usage: ${usage_percent}% (Threshold: $ZRAM_ACTIVATION_THRESHOLD%)"
+		fi
 		idle=true
 	fi
 }
@@ -581,7 +583,6 @@ dynamic_swapon() {
 	used=$(echo "$swap_line" | awk '{print $4}')
 	usage_percent=$((used * 100 / size))
 
-	loger "Swap file $last_active_swap usage: ${usage_percent}% (Threshold: $SWAP_ACTIVATION_THRESHOLD%)"
 	if [ "$usage_percent" -ge "$SWAP_ACTIVATION_THRESHOLD" ]; then
 		next_swap=""
 		idle=false
@@ -600,7 +601,11 @@ dynamic_swapon() {
 			loger "No additional swap files available"
 		fi
 	else
-		! $idle && loger "Swap usage below $SWAP_ACTIVATION_THRESHOLD%; no action needed"
+		if ! $idle; then
+			idle=false
+			loger "Swap usage below $SWAP_ACTIVATION_THRESHOLD%; no action needed"
+			loger "Swap file $last_active_swap usage: ${usage_percent}% (Threshold: $SWAP_ACTIVATION_THRESHOLD%)"
+		fi
 		idle=true
 	fi
 }
@@ -637,6 +642,18 @@ adjust_swappiness_dynamic() {
 	loger "Starting dynamic swappiness adjustment (Max: $SWAPPINESS_MAX, Min: $SWAPPINESS_MIN)"
 	loger "Thresholds - CPU: $CPU_PRESSURE_THRESHOLD, Memory: $MEMORY_PRESSURE_THRESHOLD, IO: $IO_PRESSURE_THRESHOLD, Step: $SWAPPINESS_STEP"
 
+	dyn_sw_turnoff() {
+		[ "$PRESSURE_BINDING" = "true" ] && dyn_sw=false
+	}
+
+	dyn_sw_toggle() {
+		if $dyn_sw; then
+			dyn_sw_turnoff
+		else
+			dyn_sw=true
+		fi
+	}
+
 	while true; do
 		exec 3>&1
 		set -x
@@ -649,17 +666,17 @@ adjust_swappiness_dynamic() {
 
 		if [ "$(echo "$io_metric > $IO_PRESSURE_THRESHOLD" | bc -l)" -eq 1 ]; then
 			new_swappiness=$((new_swappiness - SWAPPINESS_STEP))
-			dyn_sw=true
+			dyn_sw_toggle
 			[ "$new_swappiness" -lt "$SWAPPINESS_MAX" ] && [ "$new_swappiness" -gt "$SWAPPINESS_MIN" ] &&
 				loger "Decreased swappiness by $SWAPPINESS_STEP due to IO pressure ($io_metric > $IO_PRESSURE_THRESHOLD)"
 		elif [ "$(echo "$cpu_metric > $CPU_PRESSURE_THRESHOLD" | bc -l)" -eq 1 ]; then
 			new_swappiness=$((new_swappiness - SWAPPINESS_STEP))
-			dyn_sw=true
+			dyn_sw_toggle
 			[ "$new_swappiness" -lt "$SWAPPINESS_MAX" ] && [ "$new_swappiness" -gt "$SWAPPINESS_MIN" ] &&
 				loger "Decreased swappiness by $SWAPPINESS_STEP due to CPU pressure ($cpu_metric > $CPU_PRESSURE_THRESHOLD)"
 		elif [ "$(echo "$memory_metric > $MEMORY_PRESSURE_THRESHOLD" | bc -l)" -eq 1 ]; then
 			new_swappiness=$((new_swappiness - SWAPPINESS_STEP))
-			dyn_sw=true
+			dyn_sw_toggle
 			[ "$new_swappiness" -lt "$SWAPPINESS_MAX" ] && [ "$new_swappiness" -gt "$SWAPPINESS_MIN" ] &&
 				loger "Decreased swappiness by $SWAPPINESS_STEP due to memory pressure ($memory_metric > $MEMORY_PRESSURE_THRESHOLD)"
 		else
@@ -669,7 +686,10 @@ adjust_swappiness_dynamic() {
 			else
 				deactivate_zram_low_usage
 			fi
+
 			swap_logging_breaker=true
+			dyn_sw_turnoff
+
 			[ "$new_swappiness" -lt "$SWAPPINESS_MAX" ] && [ "$new_swappiness" -gt "$SWAPPINESS_MIN" ] &&
 				loger "Increased swappiness by $SWAPPINESS_STEP (cpu=$cpu_metric, mem=$memory_metric)"
 		fi
@@ -691,7 +711,7 @@ adjust_swappiness_dynamic() {
 			else
 				dynamic_zram
 			fi
-			dyn_sw=false
+			dyn_sw_toggle
 		fi
 
 		set +x
@@ -893,8 +913,7 @@ setup_swap() {
 		if [ "$free_space" -ge "$swap_size" ] && [ "$swap_size" != 0 ]; then
 			uprint "
 ⟩ Starting making SWAP. Please wait a moment...
-  $((free_space / 1024))MB available. $((swap_size / 1024))MB needed
-	"
+  $((free_space / 1024))MB available. $((swap_size / 1024))MB needed"
 			zram_priority=$(grep "/dev/block/zram0" /proc/swaps | awk '{print $5}')
 			swap_count=$((swap_size / quarter_gb))
 			for num in $(seq $swap_count); do
@@ -908,6 +927,7 @@ setup_swap() {
 ⟩ Storage full. Please free up your storage"
 		fi
 	else
-		uprint "⟩ SWAP already exists, remove them first"
+		uprint "
+⟩ SWAP already exists, remove them first"
 	fi
 }
