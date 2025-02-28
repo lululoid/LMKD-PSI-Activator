@@ -520,18 +520,24 @@ dynamic_zram() {
 # deactivate_zram_low_usage - Deactivates ZRAM partitions with low usage
 deactivate_zram_low_usage() {
 	zram_logging_breaker=true
+	active_zrams=$(awk '/zram/ {print $1}' /proc/swaps)
 
-	awk '/zram/ {print $1}' /proc/swaps | while read -r zram_file; do
+	for zram_file in $active_zrams; do
 		zram_line=$(grep "^$zram_file " /proc/swaps)
 		size=$(echo "$zram_line" | awk '{print $3}')
 		used=$(echo "$zram_line" | awk '{print $4}')
 		usage_percent=$((used * 100 / size))
 
-		if [ "$usage_percent" -lt "$ZRAM_DEACTIVATION_THRESHOLD" ]; then
+		if [ "$usage_percent" -le "$ZRAM_DEACTIVATION_THRESHOLD" ] && $VTRIGGER; then
 			loger "ZRAM deactivation threshold reached"
 			loger "Deactivating $zram_file (usage: ${usage_percent}% < $ZRAM_DEACTIVATION_THRESHOLD%)"
 			swapoff "$zram_file" 2>/dev/null
 			zram_logging_breaker=false
+			VTRIGGER=false
+
+		elif [ "$usage_percent" -ge "$ZRAM_DEACTIVATION_THRESHOLD" ] && ! $VTRIGGER; then
+			loger "ZRAM usage is greater than threshold($ZRAM_DEACTIVATION_THRESHOLD). Triggering deactivation..."
+			VTRIGGER=true
 
 		elif ! "$zram_logging_breaker"; then
 			loger "$zram_file usage (${usage_percent}%) above $ZRAM_DEACTIVATION_THRESHOLD%; keeping active"
@@ -615,17 +621,22 @@ deactivate_swap_low_usage() {
 	swap_logging_breaker=true
 	active_swaps=$(awk '/file/ {print $1}' /proc/swaps)
 
-	echo "$active_swaps" | while read -r swap_file; do
+	for swap_file in $active_swaps; do
 		swap_line=$(grep "^$swap_file " /proc/swaps)
 		size=$(echo "$swap_line" | awk '{print $3}')
 		used=$(echo "$swap_line" | awk '{print $4}')
 		usage_percent=$((used * 100 / size))
 
-		if [ "$usage_percent" -lt "$SWAP_DEACTIVATION_THRESHOLD" ]; then
+		if [ "$usage_percent" -le "$SWAP_DEACTIVATION_THRESHOLD" ] && $VTRIGGER; then
 			loger "Swap deactivation threshold reached"
 			loger "Deactivating $swap_file (usage: ${usage_percent}% < $SWAP_DEACTIVATION_THRESHOLD%)"
 			swapoff "$swap_file" 2>/dev/null
 			swap_logging_breaker=false
+			VTRIGGER=false
+
+		elif [ "$usage_percent" -ge "$SWAP_DEACTIVATION_THRESHOLD" ] && ! $VTRIGGER; then
+			loger "SWAP usage is greater than threshold($SWAP_DEACTIVATION_THRESHOLD). Triggering deactivation..."
+			VTRIGGER=true
 
 		elif ! "$swap_logging_breaker"; then
 			loger "$swap_file usage (${usage_percent}%) above $SWAP_DEACTIVATION_THRESHOLD%; keeping active"
@@ -643,7 +654,15 @@ adjust_swappiness_dynamic() {
 	loger "Thresholds - CPU: $CPU_PRESSURE_THRESHOLD, Memory: $MEMORY_PRESSURE_THRESHOLD, IO: $IO_PRESSURE_THRESHOLD, Step: $SWAPPINESS_STEP"
 
 	dyn_sw_turnoff() {
-		[ "$PRESSURE_BINDING" = "true" ] && dyn_sw=false
+		if [ "$PRESSURE_BINDING" = "true" ]; then
+			dyn_sw=false
+			return 0
+		elif [ "$PRESSURE_BINDING" != "true" ] && [ "$PRESSURE_BINDING" != "false" ]; then
+			loger "Failed to turn off dynamic swap"
+			return 1
+		fi
+
+		return 2
 	}
 
 	dyn_sw_toggle() {

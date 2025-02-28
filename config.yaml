@@ -2,16 +2,16 @@ config_version: 0.3
 dynamic_swappiness:
   swappiness_range:
     max: 140
-    min: 80
+    min: 40
   threshold:
-    cpu_pressure: 35
+    cpu_pressure: 50
     memory_pressure: 15
     io_pressure: 30
     step: 2
 virtual_memory:
-  pressure_binding: true
+  pressure_binding: false
   zram:
-    activation_threshold: 75
+    activation_threshold: 100
     deactivation_threshold: 10
   swap:
     activation_threshold: 90
