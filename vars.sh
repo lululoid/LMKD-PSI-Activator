@@ -14,3 +14,4 @@ CPU_PRESSURE_THRESHOLD=$(read_config ".dynamic_swappiness.threshold.cpu_pressure
 MEMORY_PRESSURE_THRESHOLD=$(read_config ".dynamic_swappiness.threshold.memory_pressure" 15)
 IO_PRESSURE_THRESHOLD=$(read_config ".dynamic_swappiness.threshold.io_pressure" 30)
 SWAPPINESS_STEP=$(read_config ".dynamic_swappiness.threshold.step" 2)
+PRESSURE_BINDING=$(read_config ".dynamic_swappiness.pressure_binding" false)

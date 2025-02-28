@@ -36,7 +36,7 @@ fix_mistakes() {
 
 		if [ $file_size -ge $ten_mb ]; then
 			ui_print "
-$file size: $file_size is emptied."
+⟩ $file size: $file_size is emptied."
 			echo "" >$file
 		fi
 	done || return 1
@@ -62,8 +62,7 @@ lmkd_apply() {
 	# Determine if device is lowram or less than 2GB
 	if [ "$totalmem" -lt 2097152 ]; then
 		uprint "
-  ! Device is low RAM. Applying low RAM tweaks
-"
+⟩ ! Device is low RAM. Applying low RAM tweaks"
 		cat <<EOF >>$MODPATH/system.prop
 ro.config.low_ram=true
 ro.lmk.use_psi=true
@@ -81,7 +80,8 @@ EOF
 
 	rm_prop sys.lmk.minfree_levels
 	approps $MODPATH/system.prop
-	uprint "⟩ LMKD PSI mode activated
+	uprint "
+⟩ LMKD PSI mode activated
   RAM is better utilized with something useful than left unused"
 }
 
@@ -120,8 +120,7 @@ main() {
 
 	kill_all_pids
 	if [ "$android_version" -lt 10 ]; then
-		uprint "
-⟩ Your Android version is not supported. Performance
+		uprint "⟩ Your Android version is not supported. Performance
 tweaks won't be applied. Please upgrade your phone 
 to Android 10+"
 	else
@@ -131,17 +130,42 @@ to Android 10+"
 "
 
 		apply_touch_issue_workaround
-		echo "⟩ Applying lowmemorykiller properties
-		"
+		echo "
+⟩ Applying lowmemorykiller properties"
 		lmkd_apply
 		$MODPATH/fmiop_service.sh
 		kill -0 "$(read_pid fmiop.lmkd_loger.pid)" && uprint "
-⟩ LMKD PSI service keeper started
-"
+⟩ LMKD PSI service keeper started"
 		relmkd
 		$MODPATH/log_service.sh
 	fi
 }
+
+update_config() {
+	local current_config_v last_config_v is_update current_config
+	current_config=$MODPATH/config.yaml
+	current_config_v=$(yq '.config_version' $current_config)
+	last_config_v=$(yq '.config_version' $CONFIG_FILE)
+	is_update=$(echo "$current_config_v > $last_config_v" | bc -l)
+
+	if [ ! -f "$CONFIG_FILE" ]; then
+		mkdir -p $FMIOP_DIR
+		cp $current_config $CONFIG_FILE
+		uprint "
+⟩ Config is located in $CONFIG_FILE"
+	elif echo "$last_config_v 2.0" | awk '{print ($1 == $2) ? 1 : 0}' >/dev/null; then
+		mkdir -p $FMIOP_DIR
+		cp $current_config $CONFIG_FILE
+		uprint "
+⟩ Config is located in $CONFIG_FILE"
+	elif [ "$last_config_v" = "null" ] || [ $is_update -eq 1 ]; then
+		yq ea -i 'select(fileIndex == 0) * select(fileIndex > 0) | sort_keys(.)' $CONFIG_FILE $current_config
+		uprint "
+⟩ Config: $CONFIG_FILE is updated"
+	fi
+}
+
+set_permissions
 
 if ! [ -f $LOG_FOLDER/.redempted ]; then
 	fix_mistakes
@@ -150,11 +174,7 @@ fi
 cp $MODPATH/module.prop $LOG_FOLDER
 cp $MODPATH/action.sh /data/adb/modules/$TAG
 cp $MODPATH/fmiop.sh /data/adb/modules/$TAG
-if [ ! -f $CONFIG_FILE ]; then
-	mkdir -p $FMIOP_DIR
-	cp $MODPATH/config.yaml $FMIOP_DIR
-fi
 
-set_permissions
 setup_swap
 main
+update_config
