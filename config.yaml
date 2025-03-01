@@ -12,7 +12,7 @@ virtual_memory:
   pressure_binding: false
   zram:
     activation_threshold: 100
-    deactivation_threshold: 10
+    deactivation_threshold: 15
   swap:
     activation_threshold: 90
     deactivation_threshold: 25

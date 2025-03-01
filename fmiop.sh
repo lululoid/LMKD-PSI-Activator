@@ -493,6 +493,7 @@ dynamic_zram() {
 		for zram in $available_zrams; do
 			if ! is_active "$zram"; then
 				next_zram="$zram"
+				CURRENT_ZRAM=$next_zram
 				break
 			fi
 		done
@@ -535,7 +536,7 @@ deactivate_zram_low_usage() {
 			zram_logging_breaker=false
 			VTRIGGER=false
 
-		elif [ "$usage_percent" -ge "$ZRAM_DEACTIVATION_THRESHOLD" ] && ! $VTRIGGER; then
+		elif [ "$usage_percent" -ge "$ZRAM_DEACTIVATION_THRESHOLD" ] && [ "$CURRENT_ZRAM" = "$zram_file" ] && ! $VTRIGGER; then
 			loger "ZRAM usage is greater than threshold($ZRAM_DEACTIVATION_THRESHOLD). Triggering deactivation..."
 			VTRIGGER=true
 
@@ -596,6 +597,7 @@ dynamic_swapon() {
 		for swap in $available_swaps; do
 			if ! is_active "$swap"; then
 				next_swap="$swap"
+				CURRENT_SWAP=$next_swap
 				break
 			fi
 		done
@@ -634,7 +636,7 @@ deactivate_swap_low_usage() {
 			swap_logging_breaker=false
 			VTRIGGER=false
 
-		elif [ "$usage_percent" -ge "$SWAP_DEACTIVATION_THRESHOLD" ] && ! $VTRIGGER; then
+		elif [ "$usage_percent" -ge "$SWAP_DEACTIVATION_THRESHOLD" ] && [ "$swap_file" = "$CURRENT_SWAP" ] && ! $VTRIGGER; then
 			loger "SWAP usage is greater than threshold($SWAP_DEACTIVATION_THRESHOLD). Triggering deactivation..."
 			VTRIGGER=true
 
@@ -700,11 +702,6 @@ adjust_swappiness_dynamic() {
 				loger "Decreased swappiness by $SWAPPINESS_STEP due to memory pressure ($memory_metric > $MEMORY_PRESSURE_THRESHOLD)"
 		else
 			new_swappiness=$((new_swappiness + SWAPPINESS_STEP))
-			if "$SWAP_TIME"; then
-				deactivate_swap_low_usage
-			else
-				deactivate_zram_low_usage
-			fi
 
 			swap_logging_breaker=true
 			dyn_sw_turnoff
@@ -727,8 +724,10 @@ adjust_swappiness_dynamic() {
 		if "$dyn_sw"; then
 			if "$SWAP_TIME"; then
 				dynamic_swapon
+				deactivate_swap_low_usage
 			else
 				dynamic_zram
+				deactivate_zram_low_usage
 			fi
 			dyn_sw_toggle
 		fi
@@ -947,6 +946,6 @@ setup_swap() {
 		fi
 	else
 		uprint "
-⟩ SWAP already exists, remove them first"
+⟩ SWAP already exists."
 	fi
 }

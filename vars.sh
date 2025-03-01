@@ -16,3 +16,4 @@ IO_PRESSURE_THRESHOLD=$(read_config ".dynamic_swappiness.threshold.io_pressure" 
 SWAPPINESS_STEP=$(read_config ".dynamic_swappiness.threshold.step" 2)
 PRESSURE_BINDING=$(read_config ".virtual_memory.pressure_binding" false)
 VTRIGGER=false
+CURRENT_ZRAM=$(awk '/zram/ {print $1}' /proc/swaps | tail -n1)
