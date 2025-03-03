@@ -19,7 +19,6 @@ LOGFILE="$LOG_FOLDER/$TAG.log"                    # Main log file for script act
 PID_DB="$LOG_FOLDER/$TAG.pids"                    # File to store process IDs of background tasks
 FOGIMP_PROPS="$NVBASE/modules/fogimp/system.prop" # External properties file for LMKD tweaks
 SWAP_FILENAME="$NVBASE/fmiop_swap"                # Base name for swap files
-ZRAM_PRIORITY=32767                               # Priority for ZRAM swaps (max value)
 SWAP_TIME=false                                   # Flag to switch between ZRAM and file-based swap
 FMIOP_DIR=/sdcard/Android/fmiop
 CONFIG_FILE="$FMIOP_DIR/config.yaml" # YAML config file for thresholds and settings
@@ -378,7 +377,7 @@ update_pressure_report() {
 		last_memory_pressure=$memory_pressure
 	fi
 
-	desc=$(sed "s/\(Memory pressure.*= \)-\?[0-9]*,/\1$memory_pressure/;s/\(swappiness.*= \)-\?[0-9]*/\1$current_swappiness/" "$prop_bcp")
+	desc=$(sed "s/\(Memory pressure.*: \)-\?[0-9]*,/\1$memory_pressure, /;s/\(swappiness.*: \)-\?[0-9]*/\1$current_swappiness/" "$prop_bcp")
 	[ -n "$desc" ] && echo "$desc" >$module_prop
 }
 
@@ -464,8 +463,9 @@ dynamic_zram() {
 
 	if [ "$active_found" -eq 0 ]; then
 		first_zram=$(echo "$available_zrams" | head -n 1)
-		loger "No active ZRAM found. Activating $first_zram with priority $ZRAM_PRIORITY"
-		swapon -p "$ZRAM_PRIORITY" "$first_zram" 2>/dev/null
+		zram_priority=32767 # Priority for ZRAM swaps (max value)
+		loger "No active ZRAM found. Activating $first_zram with priority $zram_priority"
+		swapon -p "$zram_priority" "$first_zram" 2>/dev/null
 		return 0
 	fi
 
@@ -493,7 +493,6 @@ dynamic_zram() {
 		for zram in $available_zrams; do
 			if ! is_active "$zram"; then
 				next_zram="$zram"
-				CURRENT_ZRAM=$next_zram
 				break
 			fi
 		done
@@ -518,10 +517,25 @@ dynamic_zram() {
 	fi
 }
 
+is_deactivation_candidate() {
+	echo "$2" | grep -q "$1"
+}
+
+mark_all_deactivation_candidate() {
+	active_zrams=$(awk '/zram/ {print $1}' /proc/swaps | sort -r)
+
+	for zram_file in $active_zrams; do
+		Z_DEACT_CAN="$zram_file$Z_DEACT_CAN"
+		loger "Z_DEACT_CAN: $Z_DEACT_CAN"
+	done
+
+	export Z_DEACT_CAN
+}
+
 # deactivate_zram_low_usage - Deactivates ZRAM partitions with low usage
 deactivate_zram_low_usage() {
 	zram_logging_breaker=true
-	active_zrams=$(awk '/zram/ {print $1}' /proc/swaps)
+	active_zrams=$(awk '/zram/ {print $1}' /proc/swaps | sort -r)
 
 	for zram_file in $active_zrams; do
 		zram_line=$(grep "^$zram_file " /proc/swaps)
@@ -529,17 +543,19 @@ deactivate_zram_low_usage() {
 		used=$(echo "$zram_line" | awk '{print $4}')
 		usage_percent=$((used * 100 / size))
 
-		if [ "$usage_percent" -le "$ZRAM_DEACTIVATION_THRESHOLD" ] && $VTRIGGER; then
+		if [ "$usage_percent" -ge "$ZRAM_DEACTIVATION_THRESHOLD" ] && ! is_deactivation_candidate "$zram_file" "$Z_DEACT_CAN"; then
+			loger "ZRAM: $zram_file usage (${usage_percent}% > $ZRAM_DEACTIVATION_THRESHOLD%). Triggering deactivation..."
+			Z_DEACT_CAN="$zram_file$Z_DEACT_CAN"
+			loger "Z_DEACT_CAN: $Z_DEACT_CAN"
+		fi
+
+		if [ "$usage_percent" -le "$ZRAM_DEACTIVATION_THRESHOLD" ] && is_deactivation_candidate "$zram_file" "$Z_DEACT_CAN"; then
 			loger "ZRAM deactivation threshold reached"
 			loger "Deactivating $zram_file (usage: ${usage_percent}% < $ZRAM_DEACTIVATION_THRESHOLD%)"
 			swapoff "$zram_file" 2>/dev/null
 			zram_logging_breaker=false
-			VTRIGGER=false
-
-		elif [ "$usage_percent" -ge "$ZRAM_DEACTIVATION_THRESHOLD" ] && [ "$CURRENT_ZRAM" = "$zram_file" ] && ! $VTRIGGER; then
-			loger "ZRAM usage is greater than threshold($ZRAM_DEACTIVATION_THRESHOLD). Triggering deactivation..."
-			VTRIGGER=true
-
+			Z_DEACT_CAN=$(echo "$Z_DEACT_CAN" | sed "s#$zram_file##")
+			loger "Z_DEACT_CAN: $Z_DEACT_CAN"
 		elif ! "$zram_logging_breaker"; then
 			loger "$zram_file usage (${usage_percent}%) above $ZRAM_DEACTIVATION_THRESHOLD%; keeping active"
 		fi
@@ -597,7 +613,6 @@ dynamic_swapon() {
 		for swap in $available_swaps; do
 			if ! is_active "$swap"; then
 				next_swap="$swap"
-				CURRENT_SWAP=$next_swap
 				break
 			fi
 		done
@@ -621,7 +636,7 @@ dynamic_swapon() {
 # deactivate_swap_low_usage - Deactivates swap files with low usage
 deactivate_swap_low_usage() {
 	swap_logging_breaker=true
-	active_swaps=$(awk '/file/ {print $1}' /proc/swaps)
+	active_swaps=$(awk '/file/ {print $1}' /proc/swaps | sort -r)
 
 	for swap_file in $active_swaps; do
 		swap_line=$(grep "^$swap_file " /proc/swaps)
@@ -629,17 +644,18 @@ deactivate_swap_low_usage() {
 		used=$(echo "$swap_line" | awk '{print $4}')
 		usage_percent=$((used * 100 / size))
 
-		if [ "$usage_percent" -le "$SWAP_DEACTIVATION_THRESHOLD" ] && $VTRIGGER; then
+		if [ "$usage_percent" -ge "$SWAP_DEACTIVATION_THRESHOLD" ] && ! is_deactivation_candidate "$swap_file" "$S_DEACT_CAN"; then
+			loger "SWAP: $swap_file usage (${usage_percent}% > $SWAP_DEACTIVATION_THRESHOLD%). Triggering deactivation..."
+			S_DEACT_CAN="$swap_file$S_DEACT_CAN"
+			loger "S_DEACT_CAN: $S_DEACT_CAN"
+		fi
+
+		if [ "$usage_percent" -le "$SWAP_DEACTIVATION_THRESHOLD" ] && is_deactivation_candidate "$swap_file" "$S_DEACT_CAN"; then
 			loger "Swap deactivation threshold reached"
 			loger "Deactivating $swap_file (usage: ${usage_percent}% < $SWAP_DEACTIVATION_THRESHOLD%)"
 			swapoff "$swap_file" 2>/dev/null
 			swap_logging_breaker=false
-			VTRIGGER=false
-
-		elif [ "$usage_percent" -ge "$SWAP_DEACTIVATION_THRESHOLD" ] && [ "$swap_file" = "$CURRENT_SWAP" ] && ! $VTRIGGER; then
-			loger "SWAP usage is greater than threshold($SWAP_DEACTIVATION_THRESHOLD). Triggering deactivation..."
-			VTRIGGER=true
-
+			S_DEACT_CAN=$(echo "$S_DEACT_CAN" | sed "s#$swap_file##")
 		elif ! "$swap_logging_breaker"; then
 			loger "$swap_file usage (${usage_percent}%) above $SWAP_DEACTIVATION_THRESHOLD%; keeping active"
 		fi
