@@ -624,7 +624,7 @@ dynamic_swapon() {
 			loger "No additional swap files available"
 		fi
 	else
-		if ! $idle; then
+		if $idle; then
 			idle=false
 			loger "Swap usage below $SWAP_ACTIVATION_THRESHOLD%; no action needed"
 			loger "Swap file $last_active_swap usage: ${usage_percent}% (Threshold: $SWAP_ACTIVATION_THRESHOLD%)"
@@ -738,10 +738,10 @@ adjust_swappiness_dynamic() {
 		fi
 
 		if "$dyn_sw"; then
-			if "$SWAP_TIME"; then
+			if $SWAP_TIME; then
 				dynamic_swapon
 				deactivate_swap_low_usage
-			else
+			elif ! $SWAP_TIME; then
 				dynamic_zram
 				deactivate_zram_low_usage
 			fi
