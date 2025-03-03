@@ -4,7 +4,8 @@
 NVBASE=/data/adb
 TAG=fmiop
 LOG_FOLDER=$NVBASE/$TAG
-LOG=$LOG_FOLDER/${TAG}.log
+script_name=$(basename $0)
+LOG="$LOG_FOLDER/${script_name%.sh}.log" # Main log file
 
 mkdir -p $LOG_FOLDER
 
@@ -133,6 +134,7 @@ to Android 10+"
 		echo "
 ⟩ Applying lowmemorykiller properties"
 		lmkd_apply
+		mark_all_deactivation_candidate
 		$MODPATH/fmiop_service.sh
 		kill -0 "$(read_pid fmiop.lmkd_loger.pid)" && uprint "
 ⟩ LMKD PSI service keeper started"
@@ -153,7 +155,7 @@ update_config() {
 		cp $current_config $CONFIG_FILE
 		uprint "
 ⟩ Config is located in $CONFIG_FILE"
-	elif echo "$last_config_v 2.0" | awk '{print ($1 == $2) ? 1 : 0}' >/dev/null; then
+	elif [ "$(echo "$last_config_v 2.0" | awk '{print ($1 == $2) ? 1 : 0}')" -eq 1 ]; then
 		mkdir -p $FMIOP_DIR
 		cp $current_config $CONFIG_FILE
 		uprint "
