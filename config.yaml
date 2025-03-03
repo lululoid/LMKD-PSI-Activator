@@ -11,7 +11,7 @@ dynamic_swappiness:
 virtual_memory:
   pressure_binding: false
   zram:
-    activation_threshold: 100
+    activation_threshold: 80
     deactivation_threshold: 15
   swap:
     activation_threshold: 90

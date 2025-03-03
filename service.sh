@@ -13,7 +13,8 @@ MODPATH="${MODDIR:-$MODPATH}" # Set MODPATH if not defined externally
 NVBASE=/data/adb              # Base directory for logs and data
 BIN=/system/bin               # Directory for system binaries
 LOG_FOLDER="$NVBASE/fmiop"    # Directory for fmiop logs
-LOG="$LOG_FOLDER/fmiop.log"   # Main log file
+script_name=$(basename $0)
+LOG="$LOG_FOLDER/${script_name%.sh}.log" # Main log file
 
 ### Setup Logging ###
 # Redirect stdout and stderr to LOG, keep fd 3 for original stdout
@@ -49,7 +50,7 @@ done
 
 ### Wait for Boot Completion ###
 # Loop until sys.boot_completed is 1, checking every 5 seconds
-until [ "$(resetprop sys.boot_completed)" -eq 1 ]; do
+until [ "$(resetprop sys.boot_completed)" -eq 1 ] && [ -d /sdcard/Android/fmiop ]; do
 	sleep 5
 done
 
