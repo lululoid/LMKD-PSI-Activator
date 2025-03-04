@@ -499,8 +499,9 @@ dynamic_zram() {
 
 		if [ -n "$next_zram" ]; then
 			LAST_ZPRIORITY=$(get_lst_zpriority)
-			loger "Activating $next_zram at ${usage_percent}% usage with priority $((LAST_ZPRIORITY - 1))"
-			swapon -p "$((LAST_ZPRIORITY - 1))" "$next_zram" 2>/dev/null
+			LAST_ZPRIORITY=$((LAST_ZPRIORITY - 1))
+			loger "Activating $next_zram at ${usage_percent}% usage with priority $LAST_ZPRIORITY"
+			swapon -p "$LAST_ZPRIORITY" "$next_zram" 2>/dev/null
 		else
 			loger "No additional ZRAM available; switching to swap mode"
 			SWAP_TIME=true
@@ -618,8 +619,9 @@ dynamic_swapon() {
 		done
 		if [ -n "$next_swap" ]; then
 			LAST_SPRIORITY=$(get_lst_spriority)
-			loger "Activating $next_swap at ${usage_percent}% usage with priority $((LAST_SPRIORITY - 1))"
-			swapon -p "$((LAST_SPRIORITY - 1))" "$next_swap" 2>/dev/null
+			LAST_SPRIORITY=$((LAST_SPRIORITY - 1))
+			loger "Activating $next_swap at ${usage_percent}% usage with priority $LAST_SPRIORITY"
+			swapon -p "$LAST_SPRIORITY" "$next_swap" 2>/dev/null
 		else
 			loger "No additional swap files available"
 		fi
@@ -750,7 +752,7 @@ adjust_swappiness_dynamic() {
 
 		set +x
 		exec 3>&-
-		sleep 1
+		sleep 2
 	done &
 	new_pid=$!
 	save_pid "fmiop.dynswap.pid" "$new_pid"

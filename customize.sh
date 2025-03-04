@@ -4,8 +4,7 @@
 NVBASE=/data/adb
 TAG=fmiop
 LOG_FOLDER=$NVBASE/$TAG
-script_name=$(basename $0)
-LOG="$LOG_FOLDER/${script_name%.sh}.log" # Main log file
+LOG="$LOG_FOLDER/installation.log" # Main log file
 
 mkdir -p $LOG_FOLDER
 
