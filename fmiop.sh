@@ -371,8 +371,10 @@ update_pressure_report() {
 	module_prop="$MODPATH/module.prop"
 	current_swappiness=$(cat /proc/sys/vm/swappiness)
 	prop_bcp="$LOG_FOLDER/module.prop"
+	check_th_bottom=$((memory_pressure - 2))
+	check_th_up=$((memory_pressure + 2))
 
-	if [ $last_memory_pressure -ne "$memory_pressure" ]; then
+	if [ $last_memory_pressure -lt "$check_th_bottom" ] || [ $last_memory_pressure -gt "$check_th_up" ]; then
 		loger "Updating memory pressure report to $memory_pressure"
 		last_memory_pressure=$memory_pressure
 	fi
@@ -430,14 +432,58 @@ read_pressure() {
     }' "$file"
 }
 
-# get_lst_zpriority - Gets the priority of the last active ZRAM swap
-get_lst_zpriority() {
-	awk '/zram/ {print $5}' /proc/swaps | tail -n1
+# get_sml_zpriority - Gets the priority of the smallest priority active ZRAM swap
+get_sml_zpriority() {
+	local zram_priorities
+	zram_priorities=$(awk '/zram/ {print $5}' /proc/swaps)
+	local smallest=""
+	local first=1
+
+	# Iterate over all arguments
+	for num in $zram_priorities; do
+		if [ "$first" -eq 1 ]; then
+			# Initialize smallest with the first number
+			smallest="$num"
+			first=0
+		elif [ "$num" -lt "$smallest" ]; then
+			# Update smallest if current number is lower
+			smallest="$num"
+		fi
+	done
+
+	# Check if any numbers were provided
+	if [ "$first" -eq 1 ]; then
+		return 1
+	fi
+
+	echo "$smallest"
 }
 
-# get_lst_spriority - Gets the priority of the last active file swap
-get_lst_spriority() {
-	awk '/file/ {print $5}' /proc/swaps | tail -n1
+# get_sml_spriority - Gets the priority of the last active file swap
+get_sml_spriority() {
+	local swap_priorities
+	swap_priorities=$(awk '/file/ {print $5}' /proc/swaps)
+	local smallest=""
+	local first=1
+
+	# Iterate over all arguments
+	for num in $swap_priorities; do
+		if [ "$first" -eq 1 ]; then
+			# Initialize smallest with the first number
+			smallest="$num"
+			first=0
+		elif [ "$num" -lt "$smallest" ]; then
+			# Update smallest if current number is lower
+			smallest="$num"
+		fi
+	done
+
+	# Check if any numbers were provided
+	if [ "$first" -eq 1 ]; then
+		return 1
+	fi
+
+	echo "$smallest"
 }
 
 # dynamic_zram - Dynamically activates ZRAM partitions based on usage
@@ -498,14 +544,14 @@ dynamic_zram() {
 		done
 
 		if [ -n "$next_zram" ]; then
-			LAST_ZPRIORITY=$(get_lst_zpriority)
+			LAST_ZPRIORITY=$(get_sml_zpriority)
 			LAST_ZPRIORITY=$((LAST_ZPRIORITY - 1))
 			loger "Activating $next_zram at ${usage_percent}% usage with priority $LAST_ZPRIORITY"
 			swapon -p "$LAST_ZPRIORITY" "$next_zram" 2>/dev/null
 		else
 			loger "No additional ZRAM available; switching to swap mode"
 			SWAP_TIME=true
-			LAST_ZPRIORITY=$(get_lst_zpriority)
+			LAST_ZPRIORITY=$(get_sml_zpriority)
 			SWAP_PRIORITY="$LAST_ZPRIORITY"
 		fi
 	else
@@ -545,7 +591,7 @@ deactivate_zram_low_usage() {
 		usage_percent=$((used * 100 / size))
 
 		if [ "$usage_percent" -ge "$ZRAM_DEACTIVATION_THRESHOLD" ] && ! is_deactivation_candidate "$zram_file" "$Z_DEACT_CAN"; then
-			loger "ZRAM: $zram_file usage (${usage_percent}% > $ZRAM_DEACTIVATION_THRESHOLD%). Triggering deactivation..."
+			loger "ZRAM: $zram_file usage (${usage_percent}% > $ZRAM_DEACTIVATION_THRESHOLD%). Marking for deactivation..."
 			Z_DEACT_CAN="$zram_file$Z_DEACT_CAN"
 			loger "Z_DEACT_CAN: $Z_DEACT_CAN"
 		fi
@@ -618,7 +664,7 @@ dynamic_swapon() {
 			fi
 		done
 		if [ -n "$next_swap" ]; then
-			LAST_SPRIORITY=$(get_lst_spriority)
+			LAST_SPRIORITY=$(get_sml_spriority)
 			LAST_SPRIORITY=$((LAST_SPRIORITY - 1))
 			loger "Activating $next_swap at ${usage_percent}% usage with priority $LAST_SPRIORITY"
 			swapon -p "$LAST_SPRIORITY" "$next_swap" 2>/dev/null
