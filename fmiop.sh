@@ -160,7 +160,13 @@ loger_watcher() {
 
 				log_count=$(find "${log%.log}"* | wc -l)
 				new_log_file="$log.$log_count"
-				cp "$log" "$new_log_file"
+				if [ $SINCE_REBOOT ]; then
+					cp "$log" "$new_log_file.boot"
+					SINCE_REBOOT=false
+				else
+					cp "$log" "$new_log_file"
+				fi
+
 				echo "" >"$log"
 				loger "Rotated $log to $new_log_file (size: $log_size bytes)"
 
@@ -296,7 +302,6 @@ resize_zram() {
 	zram_block="/dev/block/zram$zram_id"
 
 	loger "Resizing ZRAM$zram_id to $size"
-	[ -e "$zram_block" ] && loger "ZRAM block device $zram_block exists"
 	echo 1 >/sys/block/zram${zram_id}/use_dedup 2>/dev/null && loger "Enabled deduplication for ZRAM$zram_id"
 	echo "$size" >/sys/block/zram${zram_id}/disksize 2>/dev/null && loger "Set ZRAM$zram_id size to $size"
 

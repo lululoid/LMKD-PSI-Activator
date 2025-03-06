@@ -15,6 +15,7 @@ BIN=/system/bin               # Directory for system binaries
 LOG_FOLDER="$NVBASE/fmiop"    # Directory for fmiop logs
 script_name=$(basename $0)
 LOG="$LOG_FOLDER/${script_name%.sh}.log" # Main log file
+SINCE_REBOOT=true
 
 ### Setup Logging ###
 # Redirect stdout and stderr to LOG, keep fd 3 for original stdout
@@ -31,11 +32,13 @@ zram_size=$(awk -v size="$TOTALMEM" \
 CPU_CORES_COUNT=$(grep -c ^processor /proc/cpuinfo) # Count CPU cores
 
 # Export variables for use in sourced scripts (e.g., fmiop_service.sh)
-export MODPATH BIN NVBASE LOG_ENABLED LOG_FOLDER LOG CPU_CORES_COUNT TOTALMEM
+export MODPATH BIN NVBASE LOG_ENABLED LOG_FOLDER LOG CPU_CORES_COUNT TOTALMEM SINCE_REBOOT
 
 ### Source fmiop.sh ###
 # Load fmiop functions (loger, turnoff_zram, add_zram, etc.)
 . "$MODDIR/fmiop.sh"
+
+loger "===REBOOT START FROM HERE==="
 
 ### ZRAM Initialization ###
 # Disable and remove existing ZRAM partition (zram0)
