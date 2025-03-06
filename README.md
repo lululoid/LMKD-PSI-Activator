@@ -17,10 +17,10 @@ The LMKD-PSI-Activator is a Magisk module designed to improve RAM management on 
 
 - 🌀 **Dynamic ZRAM Management**: Adjusts ZRAM partitions based on system pressure metrics (/proc/pressure/\*).
 - 📂 **Swap File Management**: Dynamically manages swap files(/data/adb/fmiop_swap.\*).
-- 🔄 **Swappiness Adjustment**: Adjusts the system's swappiness based on usage metrics.
+- 🔄 **Dynamic Swappiness Adjustment**: Adjusts the system's swappiness based on usage metrics.
 - 📝 **LMKD Property Tweaks**: Enhances LMKD by tweaks system properties for better memory management.
 - 📈 **Pressure Metrics Reporting**: Monitors and reports memory pressure metrics, observable from magisk app.
-- 🗃️ **Archiving Logs**: Archives log files periodically to manage storage.
+- 🗃️ **Archiving Logs**: Archives log files periodically to manage storage(Internal/Android/fmiop/archives.
 
 ## Configuration
 
@@ -32,18 +32,18 @@ The LMKD-PSI-Activator is a Magisk module designed to improve RAM management on 
 config_version: 0.3
 dynamic_swappiness:
   swappiness_range:
-    max: 140
-    min: 40
+    max: 100
+    min: 60
   threshold:
-    cpu_pressure: 50
+    cpu_pressure: 40
     memory_pressure: 15
     io_pressure: 30
     step: 2
 virtual_memory:
   pressure_binding: false
   zram:
-    activation_threshold: 95
-    deactivation_threshold: 15
+    activation_threshold: 70
+    deactivation_threshold: 10
   swap:
     activation_threshold: 90
     deactivation_threshold: 25
