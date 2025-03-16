@@ -603,7 +603,8 @@ deactivate_zram_low_usage() {
 			loger "Z_DEACT_CAN: $Z_DEACT_CAN"
 		fi
 
-		if [ "$usage_percent" -le "$ZRAM_DEACTIVATION_THRESHOLD" ] && is_deactivation_candidate "$zram_file" "$Z_DEACT_CAN"; then
+		if [ "$usage_percent" -le "$ZRAM_DEACTIVATION_THRESHOLD" ] && is_deactivation_candidate "$zram_file" "$Z_DEACT_CAN" &&
+			[ $VIR_E = "true" ]; then
 			loger "ZRAM deactivation threshold reached"
 			loger "Deactivating $zram_file (usage: ${usage_percent}% < $ZRAM_DEACTIVATION_THRESHOLD%)"
 			swapoff "$zram_file" 2>/dev/null
