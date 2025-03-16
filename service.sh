@@ -45,16 +45,23 @@ loger "===REBOOT START FROM HERE==="
 turnoff_zram /dev/block/zram0
 remove_zram 0 && loger "Successfully removed /dev/block/zram0"
 
-# Create and resize ZRAM partitions based on CPU core count
-for _ in $(seq "$CPU_CORES_COUNT"); do
-	zram_id=$(add_zram)
-	resize_zram "$((TOTALMEM / CPU_CORES_COUNT))" "$zram_id"
-done
-
 ### Wait for Boot Completion ###
 # Loop until sys.boot_completed is 1, checking every 5 seconds
 until [ "$(resetprop sys.boot_completed)" -eq 1 ] && [ -d /sdcard/Android/fmiop ]; do
 	sleep 5
+done
+
+. "$MODDIR/vars.sh"
+
+if [ $VIR_E = "false" ]; then
+	zram_id=$(add_zram)
+	resize_zram "$TOTALMEM" "$zram_id"
+fi
+
+# Create and resize ZRAM partitions based on CPU core count
+[ $VIR_E = "true" ] && for _ in $(seq "$CPU_CORES_COUNT"); do
+	zram_id=$(add_zram)
+	resize_zram "$((TOTALMEM / CPU_CORES_COUNT))" "$zram_id"
 done
 
 ### Start Services ###

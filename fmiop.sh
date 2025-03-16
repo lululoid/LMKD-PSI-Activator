@@ -45,6 +45,8 @@ read_config() {
 		loger "Can't read value from $CONFIG_FILE"
 		value="$default"
 	fi
+
+	loger "Read config: $key=$value"
 	echo "$value"
 }
 

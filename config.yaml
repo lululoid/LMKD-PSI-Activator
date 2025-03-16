@@ -1,4 +1,4 @@
-config_version: 0.3
+config_version: 0.4
 dynamic_swappiness:
   swappiness_range:
     max: 100
@@ -9,6 +9,7 @@ dynamic_swappiness:
     io_pressure: 30
     step: 2
 virtual_memory:
+  enable: false
   pressure_binding: false
   zram:
     activation_threshold: 70
