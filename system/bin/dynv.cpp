@@ -4,7 +4,11 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <sstream>
+#include <string>
 #include <thread>
+#include <unistd.h>
+#include <vector>
 #include <yaml-cpp/yaml.h>
 
 using namespace std;
@@ -12,6 +16,10 @@ using namespace std;
 atomic<bool> running(true);
 const string fmiop_dir = "/sdcard/Android/fmiop";
 const string config_file = fmiop_dir + "/config.yaml";
+const string TAG = "fmiop";
+const string NVBASE = "/data/adb";
+const string LOG_FOLDER = NVBASE + TAG;
+const string PID_DB = LOG_FOLDER + TAG + ".pids";
 
 /**
  * Reads a value from a YAML config file with a default fallback.
@@ -188,8 +196,55 @@ void dynv_service() {
  */
 void signal_handler(int signal) { running = false; }
 
+/**
+ * Saves a PID to a file (PID_DB) with a given name.
+ * If the name already exists, it is replaced.
+ *
+ * @param pid_name The name associated with the PID.
+ * @param pid_value The PID to be saved.
+ */
+void save_pid(const string &pid_name, int pid_value) {
+  ifstream infile(PID_DB);
+  vector<string> lines;
+  string line;
+  bool found = false;
+
+  // Read existing PID_DB content, excluding lines with the same name
+  while (getline(infile, line)) {
+    if (line.find(pid_name + "=") != 0) { // Exclude existing entry for the name
+      lines.push_back(line);
+    } else {
+      found = true;
+    }
+  }
+  infile.close();
+
+  // Append new PID entry
+  lines.push_back(pid_name + "=" + to_string(pid_value));
+
+  // Write back to PID_DB
+  ofstream outfile(PID_DB);
+  if (!outfile) {
+    cerr << "Error: Unable to open " << PID_DB << " for writing." << endl;
+    return;
+  }
+  for (const auto &l : lines) {
+    outfile << l << endl;
+  }
+  outfile.close();
+
+  cout << "Saved PID " << pid_value << " for " << pid_name
+       << (found ? " (Updated)" : " (New)") << endl;
+}
+
 int main() {
   signal(SIGINT, signal_handler);
+
+  pid_t current_pid = getpid();
+  cout << "Current PID: " << current_pid << endl;
+
+  save_pid("dynv_service", current_pid);
+
   thread adjust_thread(dynv_service);
   adjust_thread.join();
   return 0;
