@@ -24,8 +24,8 @@ atomic<bool> running(true);
 const string fmiop_dir = "/sdcard/Android/fmiop";
 const string config_file = fmiop_dir + "/config.yaml";
 const string NVBASE = "/data/adb";
-const string LOG_FOLDER = NVBASE + LOG_TAG;
-const string PID_DB = LOG_FOLDER + LOG_TAG + ".pids";
+const string LOG_FOLDER = NVBASE + "/" + LOG_TAG;
+const string PID_DB = LOG_FOLDER + "/" + LOG_TAG + ".pids";
 
 /**
  * Reads a value from a YAML config file with a default fallback.
@@ -169,19 +169,21 @@ void dyn_swap_service() {
         memory_metric > MEMORY_PRESSURE_THRESHOLD) {
       new_swappiness =
           max(SWAPPINESS_MIN, current_swappiness - SWAPPINESS_STEP);
-      ALOGI("Decreased swappiness due to system pressure");
     } else {
       new_swappiness =
           min(SWAPPINESS_MAX, current_swappiness + SWAPPINESS_STEP);
-      if (new_swappiness != SWAPPINESS_MAX) {
-        ALOGI("Increased swappiness as system is stable");
-      }
     }
 
     if (new_swappiness != current_swappiness) {
       write_swappiness(new_swappiness);
-      ALOGI("Swappiness adjusted from %d to %d", current_swappiness,
-            new_swappiness);
+
+      if (new_swappiness == SWAPPINESS_MIN) {
+        ALOGI("Swappiness decreased to the minimum due to system pressure");
+      } else if (new_swappiness == SWAPPINESS_MAX) {
+        ALOGI("Swappiness increased to the maximum as the system is stable");
+      } else {
+        ALOGI("Swappiness adjusted to %d", new_swappiness);
+      }
     }
 
     for (int i = 0; i < 10 && running; ++i) {
@@ -197,35 +199,46 @@ void signal_handler(int signal) { running = false; }
 
 /**
  * Saves a PID to a file (PID_DB) with a given name.
+ * If the name already exists, it is replaced.
+ *
+ * @param pid_name The name associated with the PID.
+ * @param pid_value The PID to be saved.
  */
 void save_pid(const string &pid_name, int pid_value) {
-  ifstream infile(PID_DB);
   vector<string> lines;
   string line;
   bool found = false;
 
-  while (getline(infile, line)) {
-    if (line.find(pid_name + "=") != 0) {
-      lines.push_back(line);
-    } else {
-      found = true;
+  // Open the PID_DB file for reading.
+  ifstream infile(PID_DB);
+  if (infile) {
+    while (getline(infile, line)) {
+      // Check if the line starts with "pid_name="
+      if (line.compare(0, pid_name.size() + 1, pid_name + "=") != 0) {
+        lines.push_back(line);
+      } else {
+        found = true;
+      }
     }
+    infile.close();
   }
-  infile.close();
 
+  // Append the new PID entry.
   lines.push_back(pid_name + "=" + to_string(pid_value));
 
+  // Open PID_DB for writing (this overwrites the file).
   ofstream outfile(PID_DB);
   if (!outfile) {
     ALOGE("Error: Unable to open %s for writing.", PID_DB.c_str());
     return;
   }
+
   for (const auto &l : lines) {
-    outfile << l << endl;
+    outfile << l << "\n";
   }
   outfile.close();
 
-  ALOGI("Saved PID %d for %s %s", pid_value, pid_name.c_str(),
+  ALOGD("Saved PID %d for %s %s", pid_value, pid_name.c_str(),
         found ? "(Updated)" : "(New)");
 }
 

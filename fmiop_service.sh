@@ -21,8 +21,9 @@ start_services() {
 	. $MODPATH/vars.sh
 	fmiop
 	loger "Started fmiop with PID $!"
-	adjust_swappiness_dynamic
-	loger "Started adjust_swappiness_dynamic with PID $!"
+	$MODPATH/system/bin/dynv &
+	loger "Started dyn_swap_service with PID $!"
+	markll_sdeacandidate
 }
 
 # Initial run
