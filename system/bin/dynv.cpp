@@ -1,3 +1,4 @@
+#include <android/log.h>
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -13,13 +14,18 @@
 
 using namespace std;
 
+#define LOG_TAG "fmiop"
+#define ALOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
+#define ALOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#define ALOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define ALOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
+
 atomic<bool> running(true);
 const string fmiop_dir = "/sdcard/Android/fmiop";
 const string config_file = fmiop_dir + "/config.yaml";
-const string TAG = "fmiop";
 const string NVBASE = "/data/adb";
-const string LOG_FOLDER = NVBASE + TAG;
-const string PID_DB = LOG_FOLDER + TAG + ".pids";
+const string LOG_FOLDER = NVBASE + LOG_TAG;
+const string PID_DB = LOG_FOLDER + LOG_TAG + ".pids";
 
 /**
  * Reads a value from a YAML config file with a default fallback.
@@ -28,20 +34,16 @@ template <typename T> T read_config(const string &key_path, T default_value) {
   try {
     YAML::Node node = YAML::LoadFile(config_file);
     size_t pos = 0, found;
-
-    // **Fix: Ignore leading dot if present**
-    string clean_key_path = key_path;
-    if (!key_path.empty() && key_path[0] == '.') {
-      clean_key_path = key_path.substr(1);
-    }
+    string clean_key_path =
+        (key_path[0] == '.') ? key_path.substr(1) : key_path;
 
     while ((found = clean_key_path.find('.', pos)) != string::npos) {
       string key = clean_key_path.substr(pos, found - pos);
       node = node[key];
 
       if (!node) {
-        cerr << "Config key not found: " << key_path
-             << ". Using default: " << default_value << endl;
+        ALOGW("Config key not found: %s. Using default: %d", key_path.c_str(),
+              default_value);
         return default_value;
       }
       pos = found + 1;
@@ -51,18 +53,17 @@ template <typename T> T read_config(const string &key_path, T default_value) {
     node = node[finalKey];
 
     if (!node) {
-      cerr << "Config key not found: " << key_path
-           << ". Using default: " << default_value << endl;
+      ALOGW("Config key not found: %s. Using default: %d", key_path.c_str(),
+            default_value);
       return default_value;
     }
 
     T value = node.as<T>();
-
-    cout << "Config [" << key_path << "] = " << value << endl;
+    ALOGI("Config [%s] = %d", key_path.c_str(), value);
     return value;
 
   } catch (const exception &e) {
-    cerr << "Error reading config: " << e.what() << endl;
+    ALOGE("Error reading config: %s", e.what());
     return default_value;
   }
 }
@@ -85,9 +86,8 @@ int read_swappiness() {
 void write_swappiness(int value) {
   ofstream file("/proc/sys/vm/swappiness");
   if (!file) {
-    cerr << "Error: Unable to write to /proc/sys/vm/swappiness. Check "
-            "permissions."
-         << endl;
+    ALOGE("Error: Unable to write to /proc/sys/vm/swappiness. Check "
+          "permissions.");
     return;
   }
   file << value;
@@ -102,8 +102,8 @@ double read_pressure(const string &resource, const string &level,
   ifstream file(file_path);
 
   if (!file.is_open()) {
-    cerr << "Error: Unable to open " << file_path << endl;
-    return nan(""); // Return NaN instead of -1.0 for clarity
+    ALOGE("Error: Unable to open %s", file_path.c_str());
+    return nan("");
   }
 
   string line;
@@ -127,13 +127,13 @@ double read_pressure(const string &resource, const string &level,
       }
     }
   }
-  return nan(""); // Return NaN if key not found
+  return nan("");
 }
 
 /**
  * Dynamic swappiness adjustment service.
  */
-void dynv_service() {
+void dyn_swap_service() {
   int SWAPPINESS_MAX =
       read_config(".dynamic_swappiness.swappiness_range.max", 140);
   int SWAPPINESS_MIN =
@@ -149,7 +149,7 @@ void dynv_service() {
   while (running) {
     int current_swappiness = read_swappiness();
     if (current_swappiness == -1) {
-      cerr << "Error reading swappiness" << endl;
+      ALOGE("Error reading swappiness");
       break;
     }
 
@@ -158,7 +158,7 @@ void dynv_service() {
     double io_metric = read_pressure("io", "some", "avg60");
 
     if (isnan(memory_metric) || isnan(cpu_metric) || isnan(io_metric)) {
-      cerr << "Error reading pressure metrics." << endl;
+      ALOGE("Error reading pressure metrics.");
       break;
     }
 
@@ -169,22 +169,21 @@ void dynv_service() {
         memory_metric > MEMORY_PRESSURE_THRESHOLD) {
       new_swappiness =
           max(SWAPPINESS_MIN, current_swappiness - SWAPPINESS_STEP);
-      cout << "Decreased swappiness due to system pressure" << endl;
+      ALOGI("Decreased swappiness due to system pressure");
     } else {
       new_swappiness =
           min(SWAPPINESS_MAX, current_swappiness + SWAPPINESS_STEP);
-      if (!(new_swappiness == SWAPPINESS_MAX)) {
-        cout << "Increased swappiness as system is stable" << endl;
+      if (new_swappiness != SWAPPINESS_MAX) {
+        ALOGI("Increased swappiness as system is stable");
       }
     }
 
     if (new_swappiness != current_swappiness) {
       write_swappiness(new_swappiness);
-      cout << "Swappiness adjusted from " << current_swappiness << " to "
-           << new_swappiness << endl;
+      ALOGI("Swappiness adjusted from %d to %d", current_swappiness,
+            new_swappiness);
     }
 
-    // Sleep with interrupt handling
     for (int i = 0; i < 10 && running; ++i) {
       this_thread::sleep_for(chrono::milliseconds(100));
     }
@@ -198,10 +197,6 @@ void signal_handler(int signal) { running = false; }
 
 /**
  * Saves a PID to a file (PID_DB) with a given name.
- * If the name already exists, it is replaced.
- *
- * @param pid_name The name associated with the PID.
- * @param pid_value The PID to be saved.
  */
 void save_pid(const string &pid_name, int pid_value) {
   ifstream infile(PID_DB);
@@ -209,9 +204,8 @@ void save_pid(const string &pid_name, int pid_value) {
   string line;
   bool found = false;
 
-  // Read existing PID_DB content, excluding lines with the same name
   while (getline(infile, line)) {
-    if (line.find(pid_name + "=") != 0) { // Exclude existing entry for the name
+    if (line.find(pid_name + "=") != 0) {
       lines.push_back(line);
     } else {
       found = true;
@@ -219,13 +213,11 @@ void save_pid(const string &pid_name, int pid_value) {
   }
   infile.close();
 
-  // Append new PID entry
   lines.push_back(pid_name + "=" + to_string(pid_value));
 
-  // Write back to PID_DB
   ofstream outfile(PID_DB);
   if (!outfile) {
-    cerr << "Error: Unable to open " << PID_DB << " for writing." << endl;
+    ALOGE("Error: Unable to open %s for writing.", PID_DB.c_str());
     return;
   }
   for (const auto &l : lines) {
@@ -233,19 +225,19 @@ void save_pid(const string &pid_name, int pid_value) {
   }
   outfile.close();
 
-  cout << "Saved PID " << pid_value << " for " << pid_name
-       << (found ? " (Updated)" : " (New)") << endl;
+  ALOGI("Saved PID %d for %s %s", pid_value, pid_name.c_str(),
+        found ? "(Updated)" : "(New)");
 }
 
 int main() {
   signal(SIGINT, signal_handler);
 
   pid_t current_pid = getpid();
-  cout << "Current PID: " << current_pid << endl;
+  ALOGI("Current PID: %d", current_pid);
 
-  save_pid("dynv_service", current_pid);
+  save_pid("dyn_swap_service", current_pid);
 
-  thread adjust_thread(dynv_service);
+  thread adjust_thread(dyn_swap_service);
   adjust_thread.join();
   return 0;
 }
