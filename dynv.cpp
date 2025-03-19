@@ -321,6 +321,7 @@ get_deactivation_candidates(int threshold, const string &filter,
                             const vector<string> last_candidates) {
   vector<string> candidates = last_candidates;
   vector<string> active_swaps = get_active_swap(filter);
+  int low_swap_count = 0;
 
   candidates.reserve(active_swaps.size()); // Prevent multiple reallocations
 
@@ -331,6 +332,11 @@ get_deactivation_candidates(int threshold, const string &filter,
     if (usage >= threshold && !is_in_candidates) {
       ALOGD("%s is in candidates.", swap.c_str());
       candidates.push_back(swap);
+    } else {
+      low_swap_count++;
+      if (low_swap_count > 1) {
+        candidates.push_back(swap);
+      }
     }
   }
 
@@ -462,21 +468,18 @@ void dyn_swap_service() {
         deactivation_candidates = get_deactivation_candidates(
             deactivation_threshold, swap_type, deactivation_candidates);
 
-        for (const auto &swap : active_swaps) {
+        for (const auto &swap : deactivation_candidates) {
           int usage = get_swap_usage(swap);
-          bool is_in_candidates = find(deactivation_candidates.begin(),
-                                       deactivation_candidates.end(),
-                                       swap) != deactivation_candidates.end();
 
-          if (usage <= deactivation_threshold && is_in_candidates) {
+          if (usage <= deactivation_threshold) {
             ALOGI("SWAP deactivation threshold reached (Usage: %d%%).",
                   deactivation_threshold);
             ALOGI("Turning off %s.", last_active_swap.c_str());
-            system(("swapoff " + last_active_swap).c_str());
             deactivation_candidates.erase(
                 remove(deactivation_candidates.begin(),
                        deactivation_candidates.end(), last_active_swap),
                 deactivation_candidates.end());
+            system(("swapoff " + last_active_swap).c_str());
           }
         }
       }
