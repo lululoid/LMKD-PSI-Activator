@@ -329,13 +329,16 @@ get_deactivation_candidates(int threshold, const string &filter,
     int usage = get_swap_usage(swap);
     bool is_in_candidates = find(last_candidates.begin(), last_candidates.end(),
                                  swap) != last_candidates.end();
-    if (usage >= threshold && !is_in_candidates) {
-      ALOGD("%s is in candidates.", swap.c_str());
-      candidates.push_back(swap);
-    } else {
-      low_swap_count++;
-      if (low_swap_count > 1) {
+    if (!is_in_candidates) {
+      if (usage >= threshold) {
+        ALOGD("%s is in candidates.", swap.c_str());
         candidates.push_back(swap);
+      } else {
+        low_swap_count++;
+        if (low_swap_count > 1) {
+          candidates.push_back(swap);
+          low_swap_count--;
+        }
       }
     }
   }
