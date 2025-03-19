@@ -188,7 +188,7 @@ void save_pid(const string &pid_name, int pid_value) {
 }
 
 // Function to get the smallest priority of active ZRAM swaps
-int get_last_priority(const string &filter) {
+int get_smlst_priority(const string &filter) {
   ifstream file(SWAP_PROC_FILE);
   if (!file) {
     ALOGE("Error: Unable to open %s", SWAP_PROC_FILE);
@@ -256,6 +256,7 @@ vector<string> get_available_swap(const string &filter) {
     string pathStr = entry.path().string();
     if (pathStr.find(filter) != string::npos) {
       available_swaps.push_back(pathStr);
+      ALOGD("SWAP: %s is available.", pathStr.c_str());
     }
   }
 
@@ -263,6 +264,7 @@ vector<string> get_available_swap(const string &filter) {
     ALOGW("No ZRAM partitions available in %s", ZRAM_DIR);
   }
 
+  sort(available_swaps.begin(), available_swaps.end());
   return available_swaps;
 }
 
@@ -284,6 +286,7 @@ vector<string> get_active_swap(const string &filter) {
     iss >> device;
     if (device.find(filter) != string::npos) {
       active_swaps.push_back(device);
+      ALOGD("%s is active.", device.c_str());
     }
   }
 
@@ -375,13 +378,13 @@ void dyn_swap_service() {
     if (active_zrams.empty() && !available_zrams.empty()) {
       string first_zram = available_zrams[0];
       int zram_priority = 32767;
+      ALOGD("First SWAP: %s", first_zram.c_str());
       ALOGI("No active ZRAM found. Activating %s with priority %d",
             first_zram.c_str(), zram_priority);
 
       // Instead of system(), consider direct manipulation if possible
       system(
           ("swapon -p " + to_string(zram_priority) + " " + first_zram).c_str());
-      return;
     }
 
     if (!active_zrams.empty()) {
@@ -393,21 +396,22 @@ void dyn_swap_service() {
         for (const auto &zram : available_zrams) {
           if (!is_active(zram)) {
             next_zram = zram;
+            ALOGD("Next SWAP: %s", next_zram.c_str());
             break;
           }
         }
 
         if (!next_zram.empty()) {
-          int last_zpriority = get_last_priority("zram");
-          if (last_zpriority != -1) {
-            last_zpriority--;
+          int nxt_priority = get_smlst_priority("zram");
+          if (nxt_priority != -1) {
+            nxt_priority--;
             ALOGI("Activating %s at %d%% usage with priority %d",
-                  next_zram.c_str(), lst_zram_usage, last_zpriority);
-            system(("swapon -p " + to_string(last_zpriority) + " " + next_zram)
+                  next_zram.c_str(), lst_zram_usage, nxt_priority);
+            system(("swapon -p " + to_string(nxt_priority) + " " + next_zram)
                        .c_str());
           }
         } else {
-          ALOGW("No additional ZRAM available; switching to swap mode.");
+          ALOGW("No additional SWAP available; Switch to SWAP file.");
         }
       }
 
@@ -416,12 +420,15 @@ void dyn_swap_service() {
                last_active_zram) != deactivation_candidates.end();
 
       if (lst_zram_usage >= ZRAM_DEACTIVATION_THRESHOLD && !is_in_candidates) {
-        ALOGI("ZRAM: %s usage (%d%% < %d%%). Marking for deactivation...",
+        ALOGI("SWAP: %s usage (%d%% >= %d%%). Marking for deactivation...",
               last_active_zram.c_str(), lst_zram_usage,
               ZRAM_DEACTIVATION_THRESHOLD);
         deactivation_candidates.push_back(last_active_zram);
-      } else if (is_in_candidates) {
-        ALOGI("ZRAM deactivation threshold reached");
+      } else if (lst_zram_usage <= ZRAM_DEACTIVATION_THRESHOLD &&
+                 is_in_candidates) {
+        ALOGI("SWAP deactivation threshold reached (Usage: %d%%).",
+              ZRAM_DEACTIVATION_THRESHOLD);
+        ALOGI("Turning off %s.", last_active_zram.c_str());
         system(("swapoff " + last_active_zram).c_str());
         deactivation_candidates.erase(remove(deactivation_candidates.begin(),
                                              deactivation_candidates.end(),
