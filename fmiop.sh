@@ -18,8 +18,6 @@ LOG_FOLDER="$NVBASE/$TAG"                         # Log directory (NVBASE must b
 LOGFILE="$LOG_FOLDER/$TAG.log"                    # Main log file for script activity
 PID_DB="$LOG_FOLDER/$TAG.pids"                    # File to store process IDs of background tasks
 FOGIMP_PROPS="$NVBASE/modules/fogimp/system.prop" # External properties file for LMKD tweaks
-SWAP_FILENAME="$NVBASE/fmiop_swap"                # Base name for swap files
-SWAP_TIME=false                                   # Flag to switch between ZRAM and file-based swap
 FMIOP_DIR=/sdcard/Android/fmiop
 CONFIG_FILE="$FMIOP_DIR/config.yaml" # YAML config file for thresholds and settings
 

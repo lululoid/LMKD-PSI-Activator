@@ -159,7 +159,7 @@ update_config() {
 		cp $current_config $CONFIG_FILE
 		uprint "
 ⟩ Config is located in $CONFIG_FILE"
-	elif [ "$(echo "$last_config_v 0.5" | awk '{print ($1 == $2) ? 1 : 0}')" -eq 1 ]; then
+	elif [ "$(echo "$last_config_v 0.4" | awk '{print ($1 == $2) ? 1 : 0}')" -eq 1 ]; then
 		mkdir -p $FMIOP_DIR
 		cp $current_config $CONFIG_FILE
 		uprint "
