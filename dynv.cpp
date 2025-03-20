@@ -12,6 +12,7 @@
 #include <string>
 #include <thread>
 #include <unistd.h>
+#include <utility>
 #include <vector>
 #include <yaml-cpp/yaml.h>
 
@@ -292,11 +293,11 @@ vector<string> get_active_swap(const string &filter) {
   return active_swaps;
 }
 
-int get_swap_usage(const string &device) {
+pair<int, int> get_swap_usage(const string &device) {
   string line;
   ifstream proc_file(SWAP_PROC_FILE);
 
-  getline(proc_file, line);
+  getline(proc_file, line); // Skip header line
 
   int size = 0, used = 0;
   while (getline(proc_file, line)) {
@@ -310,10 +311,12 @@ int get_swap_usage(const string &device) {
 
   if (size == 0) {
     ALOGE("Error: Could not determine size of %s", device.c_str());
-    return nan("");
+    return {0, -1}; // Return -1% to indicate error
   }
 
-  return (used * 100) / size;
+  int used_percentage = (used * 100) / size;
+  int used_mb = (used / 1024);
+  return {used_mb, used_percentage}; // Return {used MB, percentage}
 }
 
 vector<string>
@@ -326,16 +329,19 @@ get_deactivation_candidates(int threshold, const string &filter,
   candidates.reserve(active_swaps.size()); // Prevent multiple reallocations
 
   for (const auto &swap : active_swaps) {
-    int usage = get_swap_usage(swap);
+    pair<int, int> usage = get_swap_usage(swap);
     bool is_in_candidates = find(last_candidates.begin(), last_candidates.end(),
                                  swap) != last_candidates.end();
     if (!is_in_candidates) {
-      if (usage >= threshold) {
-        ALOGD("%s is in candidates.", swap.c_str());
+      if (usage.first > threshold) {
+        ALOGD("%s is in candidates, usage(%dMB > %dMB).", swap.c_str(),
+              usage.first, threshold);
         candidates.push_back(swap);
       } else {
         low_swap_count++;
         if (low_swap_count > 1) {
+          ALOGI("Keeping low swap count to 1, adding %s to candidates.",
+                swap.c_str());
           candidates.push_back(swap);
           low_swap_count--;
         }
@@ -427,13 +433,14 @@ void dyn_swap_service() {
         // Instead of system(), consider direct manipulation if possible
         system(("swapon -p " + to_string(swap_priority) + " " + first_swap)
                    .c_str());
+        active_swaps = get_active_swap(swap_type);
       }
 
       if (!active_swaps.empty()) {
         string last_active_swap = active_swaps.back();
-        int lst_swap_usage = get_swap_usage(last_active_swap);
+        pair<int, int> lst_swap_usage = get_swap_usage(last_active_swap);
 
-        if (lst_swap_usage >= activation_threshold) {
+        if (lst_swap_usage.second > activation_threshold) {
           string next_swap;
           for (const auto &zram : available_swaps) {
             if (!is_active(zram)) {
@@ -448,7 +455,7 @@ void dyn_swap_service() {
             if (nxt_priority != -1) {
               nxt_priority--;
               ALOGI("Activating %s at %d%% usage with priority %d",
-                    next_swap.c_str(), lst_swap_usage, nxt_priority);
+                    next_swap.c_str(), lst_swap_usage.second, nxt_priority);
               system(("swapon -p " + to_string(nxt_priority) + " " + next_swap)
                          .c_str());
             }
@@ -472,17 +479,17 @@ void dyn_swap_service() {
             deactivation_threshold, swap_type, deactivation_candidates);
 
         for (const auto &swap : deactivation_candidates) {
-          int usage = get_swap_usage(swap);
+          pair<int, int> usage = get_swap_usage(swap);
 
-          if (usage <= deactivation_threshold) {
-            ALOGI("SWAP deactivation threshold reached (Usage: %d%%).",
-                  deactivation_threshold);
+          if (usage.first < deactivation_threshold) {
+            ALOGI("SWAP deactivation threshold reached (Usage: %dMB < %dMB).",
+                  usage.first, deactivation_threshold);
             ALOGI("Turning off %s.", last_active_swap.c_str());
+            system(("swapoff " + last_active_swap).c_str());
             deactivation_candidates.erase(
                 remove(deactivation_candidates.begin(),
                        deactivation_candidates.end(), last_active_swap),
                 deactivation_candidates.end());
-            system(("swapoff " + last_active_swap).c_str());
           }
         }
       }

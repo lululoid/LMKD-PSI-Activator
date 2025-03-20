@@ -1,4 +1,4 @@
-config_version: 0.4
+config_version: 0.5
 dynamic_swappiness:
   swappiness_range:
     max: 100
@@ -9,11 +9,11 @@ dynamic_swappiness:
     io_pressure: 30
     step: 2
 virtual_memory:
-  enable: false
+  enable: true
   pressure_binding: false
   zram:
     activation_threshold: 70
-    deactivation_threshold: 10
+    deactivation_threshold: 50
   swap:
     activation_threshold: 90
-    deactivation_threshold: 25
+    deactivation_threshold: 50
