@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -27,6 +28,10 @@ using namespace std;
 #define ALOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 #define ALOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define ALOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
+
+extern void save_pid(const std::string &filename, pid_t pid);
+extern void dyn_swap_service();
+extern void fmiop();
 
 atomic<bool> running(true);
 const string fmiop_dir = "/sdcard/Android/fmiop";
@@ -141,7 +146,11 @@ double read_pressure(const string &resource, const string &level,
 /**
  * Handles termination signals.
  */
-void signal_handler(int signal) { running = false; }
+void signal_handler(int signal) {
+  ALOGI("Received signal %d, exiting...", signal);
+  running = false;
+  exit(signal);
+}
 
 /**
  * Saves a PID to a file (PID_DB) with a given name.
@@ -501,15 +510,94 @@ void dyn_swap_service() {
   }
 }
 
+void relmkd() {
+  system("resetprop lmkd.reinit 1");
+  ALOGD("LMKD reinitialized");
+}
+
+bool prop_exists(const std::string &prop) {
+  std::string command = "resetprop -v " + prop + " 2>/dev/null";
+  FILE *pipe = popen(command.c_str(), "r");
+  if (!pipe) {
+    ALOGW("Failed to check property: %s", prop.c_str());
+    return false;
+  }
+
+  char buffer[128];
+  bool exists = false;
+  if (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+    exists = true; // If output is not empty, property exists
+  }
+
+  pclose(pipe);
+  return exists;
+}
+
+void rm_prop(const std::vector<std::string> &props) {
+  for (const auto &prop : props) {
+    if (prop_exists(prop)) {
+      std::string command = "resetprop -d " + prop;
+      int result = system(command.c_str());
+
+      if (result == 0) {
+        ALOGW("Prop %s deleted successfully", prop.c_str());
+      } else {
+        ALOGW("Failed to delete prop: %s", prop.c_str());
+      }
+    }
+  }
+}
+
+void fmiop() {
+  ALOGI("Starting fmiop memory optimization");
+
+  // Load properties
+  map<string, string> props;
+  ifstream props_file("/data/adb/modules/fogimp/system.prop");
+  string line;
+
+  while (getline(props_file, line)) {
+    if (line.empty() || line[0] == '#')
+      continue;
+    size_t equal_pos = line.find('=');
+    if (equal_pos != string::npos) {
+      string key = line.substr(0, equal_pos);
+      string value = line.substr(equal_pos + 1);
+      props[key] = value;
+      ALOGD("Loaded property %s=%s", key.c_str(), value.c_str());
+    }
+  }
+  props_file.close();
+
+  while (true) {
+    rm_prop({"sys.lmk.minfree_levels"});
+
+    for (const auto &[prop, value] : props) {
+      string check_command = "resetprop " + prop + " >/dev/null 2>&1";
+      if (system(check_command.c_str()) != 0) {
+        string reset_command = "resetprop " + prop + " " + value;
+        system(reset_command.c_str());
+        ALOGI("Reapplied %s=%s", prop.c_str(), value.c_str());
+        relmkd();
+      }
+    }
+
+    this_thread::sleep_for(chrono::seconds(1));
+  }
+}
+
 int main() {
   signal(SIGINT, signal_handler);
 
   pid_t current_pid = getpid();
   ALOGI("Current PID: %d", current_pid);
-
   save_pid("dyn_swap_service", current_pid);
 
-  thread adjust_thread(dyn_swap_service);
+  std::thread adjust_thread(dyn_swap_service);
+  std::thread fmiop_thread(fmiop);
+
   adjust_thread.join();
+  fmiop_thread.join();
+
   return 0;
 }

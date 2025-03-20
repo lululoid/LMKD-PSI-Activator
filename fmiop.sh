@@ -475,6 +475,25 @@ fmiop() {
 	loger "fmiop running with PID $new_pid"
 }
 
+pressure_reporter_service() {
+	set +x
+	exec 3>&-
+
+	while true; do
+		exec 3>&1
+		set -x
+
+		update_pressure_report
+
+		set +x
+		exec 3>&-
+		sleep 1
+	done &
+	new_pid=$!
+	save_pid "pressure_reporter" "$new_pid"
+	loger "pressure reporter PID $new_pid"
+}
+
 # archive_service - Starts a background service to archive files every 5 minutes
 # Usage: archive_service
 # Archives: Files in /data/adb/fmiop/* and /sdcard/Android/fmiop/* into tar.gz

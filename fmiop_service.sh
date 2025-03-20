@@ -18,9 +18,7 @@ get_config_checksum() {
 }
 
 start_services() {
-	. $MODPATH/vars.sh
-	fmiop
-	loger "Started fmiop with PID $!"
+	pressure_reporter_service
 	$MODPATH/system/bin/dynv &
 	loger "Started dyn_swap_service with PID $!"
 }
@@ -30,7 +28,7 @@ start_services
 last_checksum=$(get_config_checksum)
 
 kill_services() {
-	services_target="fmiop.pid dyn_swap_service"
+	services_target="dyn_swap_service"
 	for id in $services_target; do
 		pid=$(read_pid $id)
 		kill -9 $pid && loger "Killed $id with PID $pid"
