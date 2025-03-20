@@ -64,7 +64,6 @@ fi
 	# Handle devices which can't make a new zram
 	resize_zram "$((TOTALMEM / CPU_CORES_COUNT))" "$zram_id"
 	[ ! $zram_id ] && resize_zram "$TOTALMEM" 0 && break
-
 done
 
 ### Start Services ###

@@ -384,22 +384,43 @@ turnon_zram() {
 
 # update_pressure_report - Updates the module.prop with current memory pressure
 last_memory_pressure=$(get_memory_pressure)
+
 update_pressure_report() {
-	local current_swappiness current_swappiness
+	local memory_pressure current_swappiness module_prop prop_bcp pressure_emoji swap_status desc
+
 	memory_pressure=$(get_memory_pressure)
 	module_prop="$MODPATH/module.prop"
 	current_swappiness=$(cat /proc/sys/vm/swappiness)
-	prop_bcp="$LOG_FOLDER/module.prop"
-	check_th_bottom=$((memory_pressure - 2))
-	check_th_up=$((memory_pressure + 2))
 
-	if [ $last_memory_pressure -lt "$check_th_bottom" ] || [ $last_memory_pressure -gt "$check_th_up" ]; then
-		loger "Updating memory pressure report to $memory_pressure"
+	# Assign emoji based on memory pressure
+	if [ "$memory_pressure" -gt 80 ]; then
+		pressure_emoji="⚪"
+	elif [ "$memory_pressure" -gt 60 ]; then
+		pressure_emoji="🟩"
+	elif [ "$memory_pressure" -gt 40 ]; then
+		pressure_emoji="🟨"
+	else
+		pressure_emoji="🟥"
+	fi
+
+	# Check if swap is active
+	if [ "$(wc -l </proc/swaps)" -gt 1 ]; then
+		swap_status="✅ Running"
+	else
+		swap_status="❌ Not Running"
+	fi
+
+	# Log update only if memory pressure has changed significantly
+	if [ "$memory_pressure" -ne "$last_memory_pressure" ]; then
+		log -p i -t fmiop "Updating memory pressure report to $memory_pressure"
 		last_memory_pressure=$memory_pressure
 	fi
 
-	desc=$(sed "s/\(Memory pressure.*: \)-\?[0-9]*,/\1$memory_pressure, /;s/\(swappiness.*: \)-\?[0-9]*/\1$current_swappiness/" "$prop_bcp")
-	[ -n "$desc" ] && echo "$desc" >$module_prop
+	# Use sed to replace the values correctly
+	sed -i -E \
+		-e "s/(Memory pressure[^:]*: )[^,]+,/\1$pressure_emoji$memory_pressure,/" \
+		-e "s/(swappiness[^:]*: )[^,]+,/\1$current_swappiness,/" \
+		-e "s/(Swap Status[^:]*: )[^.]+/\1$swap_status/" "$module_prop"
 }
 
 # save_pressures_to_vars - Stores pressure metrics from /proc/pressure into variables

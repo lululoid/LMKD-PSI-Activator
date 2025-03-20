@@ -22,6 +22,7 @@
 #define SWAP_DIR "/data/adb"
 
 using namespace std;
+namespace fs = std::filesystem;
 
 #define LOG_TAG "fmiop"
 #define ALOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
@@ -39,6 +40,7 @@ const string config_file = fmiop_dir + "/config.yaml";
 const string NVBASE = "/data/adb";
 const string LOG_FOLDER = NVBASE + "/" + LOG_TAG;
 const string PID_DB = LOG_FOLDER + "/" + LOG_TAG + ".pids";
+string SWAP_FILE = "fmiop_swap.";
 
 /**
  * Reads a value from a YAML config file with a default fallback.
@@ -262,16 +264,26 @@ bool is_active(const string &device) {
 vector<string> get_available_swap(const string &filter, const string &dir) {
   vector<string> available_swaps;
 
-  for (const auto &entry : filesystem::directory_iterator(dir)) {
+  // Check if directory exists before iterating
+  if (!fs::exists(dir) || !fs::is_directory(dir)) {
+    ALOGW("Swap directory does not exist or is not accessible: %s",
+          dir.c_str());
+    return available_swaps; // Return empty list
+  }
+
+  for (const auto &entry : fs::directory_iterator(dir)) {
     string pathStr = entry.path().string();
-    if (pathStr.find(filter) != string::npos) {
-      available_swaps.push_back(pathStr);
-      ALOGD("SWAP: %s is available.", pathStr.c_str());
+
+    if (!filter.empty() && pathStr.find(filter) == string::npos) {
+      continue; // Skip files that don’t match the filter
     }
+
+    available_swaps.push_back(pathStr);
+    ALOGD("SWAP: %s is available.", pathStr.c_str());
   }
 
   if (available_swaps.empty()) {
-    ALOGW("No swap available in %s", dir.c_str());
+    ALOGW("No swap available in directory: %s", dir.c_str());
   }
 
   sort(available_swaps.begin(), available_swaps.end());
@@ -470,8 +482,8 @@ void dyn_swap_service() {
             }
           } else {
             ALOGW("No additional SWAP available; Switch to SWAP file.");
-            swap_type = (swap_type == LOG_TAG) ? "zram" : LOG_TAG;
-            string dir = (swap_type == LOG_TAG) ? SWAP_DIR : ZRAM_DIR;
+            swap_type = (swap_type == SWAP_FILE) ? "zram" : SWAP_FILE;
+            string dir = (swap_type == SWAP_FILE) ? SWAP_DIR : ZRAM_DIR;
             available_swaps = get_available_swap(swap_type, dir);
             activation_threshold =
                 (activation_threshold == ZRAM_ACTIVATION_THRESHOLD)
