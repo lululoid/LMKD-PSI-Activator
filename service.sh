@@ -49,6 +49,8 @@ until [ "$(resetprop sys.boot_completed)" -eq 1 ] && [ -d /sdcard/Android/fmiop 
 	sleep 5
 done
 
+$MODPATH/log_service.sh
+
 VIR_E=$(read_config ".virtual_memory.enable" false)
 
 if [ $VIR_E = "false" ]; then
@@ -58,12 +60,14 @@ fi
 
 # Create and resize ZRAM partitions based on CPU core count
 [ $VIR_E = "true" ] && for _ in $(seq "$CPU_CORES_COUNT"); do
-	zram_id=$(add_zram)
+	zram_id=$(add_zram || false)
+	# Handle devices which can't make a new zram
 	resize_zram "$((TOTALMEM / CPU_CORES_COUNT))" "$zram_id"
+	[ ! $zram_id ] && resize_zram "$TOTALMEM" 0 && break
+
 done
 
 ### Start Services ###
-$MODPATH/log_service.sh
 $MODPATH/fmiop_service.sh
 loger "fmiop started"
 loger "fmiop initialization complete; services started"

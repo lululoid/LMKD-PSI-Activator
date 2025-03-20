@@ -307,6 +307,12 @@ remove_zram() {
 # Usage: resize_zram <size> <zram_id>
 resize_zram() {
 	local size="$1" zram_id="$2" zram_block
+
+	if [ -z "$zram_id" ]; then
+		loger e "zram_id is not provided. Aborting"
+		return 1
+	fi
+
 	zram_block="/dev/block/zram$zram_id"
 
 	loger "Resizing ZRAM$zram_id to $size"

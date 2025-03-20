@@ -63,7 +63,10 @@ update_json() {
 update_json update_config.json "$versionCode" "$version"
 
 echo "- Building dynamic virtual memory"
-g++ -o system/bin/dynv dynv.cpp -std=c++17 -pthread -lyaml-cpp -static-libgcc -static-libstdc++ -L"$PREFIX"/aarch64-linux-android/lib -llog
+g++ -o system/bin/dynv dynv.cpp -std=c++17 -pthread \
+	./libyaml-cpp.a -static-libgcc -static-libstdc++ \
+	-L"$PREFIX"/aarch64-linux-android/lib -llog
+
 # Create a zip package
 package_name="packages/$module_name-v${version}_$versionCode-$TAG.zip"
 7za a "$package_name" \
