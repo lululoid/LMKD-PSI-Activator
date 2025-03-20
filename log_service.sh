@@ -7,6 +7,11 @@ set -x # Prints commands, prefixing them with a character stored in an environme
 . $MODPATH/fmiop.sh
 
 lmkd_loger $LOG_FOLDER/lmkd.log
+
+$BIN/logcat -v time --pid=$(pidof dynv) >"$LOG_FOLDER/dynv.log" &
+new_pid=$!
+save_pid "fmiop.dynamic_swappiness_logger.pid" "$new_pid"
+
 loger_watcher "$LOG_FOLDER/*.log"
 loger "Started loger_watcher with PID $!"
 archive_service
