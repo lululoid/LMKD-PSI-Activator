@@ -60,10 +60,12 @@ fi
 
 # Create and resize ZRAM partitions based on CPU core count
 [ $VIR_E = "true" ] && for _ in $(seq "$CPU_CORES_COUNT"); do
-	zram_id=$(add_zram || false)
+	zram_id=$(add_zram)
+	[ -z "$zram_id" ] && zram_id=0
+
 	# Handle devices which can't make a new zram
 	resize_zram "$((TOTALMEM / CPU_CORES_COUNT))" "$zram_id"
-	[ ! $zram_id ] && resize_zram "$TOTALMEM" 0 && break
+	[ $zram_id -eq 0 ] && resize_zram "$TOTALMEM" 0 && break
 done
 
 ### Start Services ###
