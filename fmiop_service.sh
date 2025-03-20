@@ -23,7 +23,6 @@ start_services() {
 	loger "Started fmiop with PID $!"
 	$MODPATH/system/bin/dynv &
 	loger "Started dyn_swap_service with PID $!"
-	markll_sdeacandidate
 }
 
 # Initial run
@@ -31,7 +30,8 @@ start_services
 last_checksum=$(get_config_checksum)
 
 kill_services() {
-	for id in fmiop.dynswap.pid fmiop.pid; do
+	services_target="fmiop.pid dyn_swap_service"
+	for id in $services_target; do
 		pid=$(read_pid $id)
 		kill -9 $pid && loger "Killed $id with PID $pid"
 	done

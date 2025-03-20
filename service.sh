@@ -27,8 +27,6 @@ echo "
 ### System Information ###
 # Calculate total memory and ZRAM size (65% of total memory)
 TOTALMEM=$("$BIN/free" | awk '/^Mem:/ {print $2}')
-zram_size=$(awk -v size="$TOTALMEM" \
-	'BEGIN { printf "%.0f\n", size * 0.65 }')
 CPU_CORES_COUNT=$(grep -c ^processor /proc/cpuinfo) # Count CPU cores
 
 # Export variables for use in sourced scripts (e.g., fmiop_service.sh)
@@ -51,7 +49,7 @@ until [ "$(resetprop sys.boot_completed)" -eq 1 ] && [ -d /sdcard/Android/fmiop 
 	sleep 5
 done
 
-. "$MODDIR/vars.sh"
+VIR_E=$(read_config ".virtual_memory.enable" false)
 
 if [ $VIR_E = "false" ]; then
 	zram_id=$(add_zram)
@@ -65,7 +63,7 @@ fi
 done
 
 ### Start Services ###
-$MODPATH/log_service.sh
 $MODPATH/fmiop_service.sh
+$MODPATH/log_service.sh
 loger "fmiop started"
 loger "fmiop initialization complete; services started"

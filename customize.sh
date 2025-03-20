@@ -54,8 +54,8 @@ set_permissions() {
 	set_perm_recursive "$MODPATH/fmiop.sh" 0 2000 0755 0755
 	set_perm_recursive "$MODPATH/fmiop_service.sh" 0 2000 0755 0755
 	set_perm_recursive "$MODPATH/log_service.sh" 0 2000 0755 0755
-	set_perm_recursive "$MODPATH/vars.sh" 0 2000 0755 0755
 	set_perm_recursive "$MODPATH/sqlite3" 0 2000 0755 0755
+	set_perm_recursive "$MODPATH/system/bin/dynv" 0 2000 0755 0755
 }
 
 lmkd_apply() {
@@ -154,7 +154,12 @@ update_config() {
 		cp $current_config $CONFIG_FILE
 		uprint "
 ⟩ Config is located in $CONFIG_FILE"
-	elif [ "$(echo "$last_config_v 2.0" | awk '{print ($1 == $2) ? 1 : 0}')" -eq 1 ]; then
+	elif [ "$(echo "$last_config_v 0.2" | awk '{print ($1 == $2) ? 1 : 0}')" -eq 1 ]; then
+		mkdir -p $FMIOP_DIR
+		cp $current_config $CONFIG_FILE
+		uprint "
+⟩ Config is located in $CONFIG_FILE"
+	elif [ "$(echo "$last_config_v 0.5" | awk '{print ($1 == $2) ? 1 : 0}')" -eq 1 ]; then
 		mkdir -p $FMIOP_DIR
 		cp $current_config $CONFIG_FILE
 		uprint "

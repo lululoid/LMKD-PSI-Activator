@@ -368,13 +368,13 @@ void dyn_swap_service() {
       read_config(".dynamic_swappiness.threshold.io_pressure", 30);
   int SWAPPINESS_STEP = read_config(".dynamic_swappiness.threshold.step", 2);
   int ZRAM_ACTIVATION_THRESHOLD =
-      read_config(".virtual_memory.zram.activation_threshold", 25);
+      read_config(".virtual_memory.zram.activation_threshold", 70);
   int ZRAM_DEACTIVATION_THRESHOLD =
-      read_config(".virtual_memory.zram.deactivation_threshold", 10);
+      read_config(".virtual_memory.zram.deactivation_threshold", 50);
   int SWAP_ACTIVATION_THRESHOLD =
       read_config(".virtual_memory.swap.activation_threshold", 90);
   int SWAP_DEACTIVATION_THRESHOLD =
-      read_config(".virtual_memory.swap.deactivation_threshold", 25);
+      read_config(".virtual_memory.swap.deactivation_threshold", 50);
   bool PRESSURE_BINDING =
       read_config(".virtual_memory.pressure_binding", false);
 
