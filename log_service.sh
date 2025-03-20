@@ -6,19 +6,25 @@ set -x
 
 . $MODPATH/fmiop.sh
 
-pkill -9 -f "logcat.*dynv"
+for pid in $(ps aux | awk '/fmiop:V/ {print $2}'); do
+	kill -9 $pid
+done
 pkill -9 -f "logcat.*lmkd"
 lmkd_loger "$LOG_FOLDER/lmkd.log"
 
 while true; do
 	pid=$(pidof dynv)
 	if [ -n "$pid" ]; then
-		$BIN/logcat -v time --pid=$pid -r "$((5 * 1024))" -n 2 --file="$LOG_FOLDER/dynv.log"
+		logcat -v time fmiop:V '*:S' >>"$LOG_FOLDER/dynv.log" 2>&1
+		new_pid=$!
+		save_pid "fmiop.dynamic_swappiness_logger.pid" "$new_pid"
 	else
 		echo "Waiting for dynv to start..." >>"$LOG_FOLDER/fmiop.log"
 		sleep 5
 	fi
 done &
+new_pid=$!
+save_pid "fmiop.dynamic_swappiness_logger_keeper.pid" "$new_pid"
 
 loger_watcher "$LOG_FOLDER/*.log"
 loger "Started loger_watcher with PID $!"

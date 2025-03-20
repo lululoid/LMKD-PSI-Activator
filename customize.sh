@@ -50,6 +50,7 @@ set_permissions() {
 	set_perm_recursive "$MODPATH" 0 0 0755 0644
 	set_perm_recursive "$MODPATH/sed" 0 2000 0755 0755
 	set_perm_recursive "$MODPATH/yq" 0 2000 0755 0755
+	set_perm_recursive "$MODPATH/ps" 0 2000 0755 0755
 	set_perm_recursive "$MODPATH/tar" 0 2000 0755 0755
 	set_perm_recursive "$MODPATH/fmiop.sh" 0 2000 0755 0755
 	set_perm_recursive "$MODPATH/fmiop_service.sh" 0 2000 0755 0755
@@ -133,12 +134,11 @@ to Android 10+"
 		echo "
 ⟩ Applying lowmemorykiller properties"
 		lmkd_apply
-		mark_all_deactivation_candidate
+		$MODPATH/log_service.sh
 		$MODPATH/fmiop_service.sh
 		kill -0 "$(read_pid fmiop.lmkd_loger.pid)" && uprint "
 ⟩ LMKD PSI service keeper started"
 		relmkd
-		$MODPATH/log_service.sh
 	fi
 }
 
@@ -178,8 +178,11 @@ if ! [ -f $LOG_FOLDER/.redempted ]; then
 fi
 
 cp $MODPATH/module.prop $LOG_FOLDER
-cp $MODPATH/action.sh /data/adb/modules/$TAG
-cp $MODPATH/fmiop.sh /data/adb/modules/$TAG
+
+if [ -e "/data/adb/modules/$TAG" ]; then
+	cp $MODPATH/action.sh /data/adb/modules/$TAG
+	cp $MODPATH/fmiop.sh /data/adb/modules/$TAG
+fi
 
 setup_swap
 main

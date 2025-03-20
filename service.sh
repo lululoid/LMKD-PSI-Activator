@@ -63,7 +63,7 @@ fi
 done
 
 ### Start Services ###
-$MODPATH/fmiop_service.sh
 $MODPATH/log_service.sh
+$MODPATH/fmiop_service.sh
 loger "fmiop started"
 loger "fmiop initialization complete; services started"

@@ -19,6 +19,7 @@ LOGFILE="$LOG_FOLDER/$TAG.log"                    # Main log file for script act
 PID_DB="$LOG_FOLDER/$TAG.pids"                    # File to store process IDs of background tasks
 FOGIMP_PROPS="$NVBASE/modules/fogimp/system.prop" # External properties file for LMKD tweaks
 FMIOP_DIR=/sdcard/Android/fmiop
+SWAP_FILENAME="$NVBASE/fmiop_swap"
 CONFIG_FILE="$FMIOP_DIR/config.yaml" # YAML config file for thresholds and settings
 
 # Export variables for use in sourced scripts or subprocesses
@@ -29,6 +30,7 @@ alias resetprop="resetprop -v" # Verbose property reset (requires root)
 alias sed='$MODPATH/sed'       # Custom sed binary (MODPATH must be set)
 alias yq='$MODPATH/yq'         # Custom yq binary for YAML parsing
 alias tar='$MODPATH/tar'
+alias ps='$MODPATH/ps'
 
 ### Utility Functions ###
 
@@ -51,9 +53,24 @@ read_config() {
 # loger - Logs messages to LOGFILE with user-friendly formatting
 # Usage: loger "message"
 loger() {
-	local log="$1"
+	local level="$1" # First argument is the log level
+	local temp="$1"
+	shift
+	local message="$*" # Remaining arguments are the message
 
-	[ -n "$log" ] && echo "⟩ $log" >>"$LOGFILE"
+	case "$level" in
+	d | D) pri="d" ;; # DEBUG
+	e | E) pri="e" ;; # ERROR
+	f | F) pri="f" ;; # FATAL
+	i | I) pri="i" ;; # INFO
+	v | V) pri="v" ;; # VERBOSE
+	w | W) pri="w" ;; # WARN
+	s | S) pri="s" ;; # SILENT
+	*) pri="i" ;;     # Default to INFO
+	esac
+
+	[ -z "$message" ] && message="$temp"
+	[ -n "$message" ] && log -p "$pri" -t "fmiop" "$message"
 }
 
 # check_file_size - Returns the size of a file in bytes
@@ -109,7 +126,7 @@ lmkd_loger() {
 	local log_file="$1" new_pid old_pid
 
 	loger "Starting LMKD logging to $log_file"
-	resetprop ro.lmk.debug true || loger "Failed to enable LMKD debug mode"
+	resetprop ro.lmk.debug true || loger e "Failed to enable LMKD debug mode"
 	old_pid=$(read_pid "fmiop.lmkd_loger.pid")
 
 	if [ -n "$old_pid" ]; then
@@ -121,7 +138,7 @@ lmkd_loger() {
 	$BIN/logcat -v time --pid=$(pidof lmkd) -r "$((5 * 1024))" -n 2 --file="$log_file" &
 
 	if [ $? -ne 0 ]; then
-		loger "Failed to start logcat for LMKD"
+		loger e "Failed to start logcat for LMKD"
 		return 1
 	fi
 
@@ -260,7 +277,7 @@ turnoff_zram() {
 		sleep 1
 	done
 
-	loger "Failed to turn off ZRAM $zram after 20 attempts"
+	loger e "Failed to turn off ZRAM $zram after 20 attempts"
 	return 1
 }
 
@@ -274,7 +291,7 @@ add_zram() {
 		return 0
 	fi
 
-	loger "Failed to create new ZRAM partition"
+	loger e "Failed to create new ZRAM partition"
 	return 1
 }
 
@@ -283,7 +300,7 @@ add_zram() {
 remove_zram() {
 	{
 		echo "$1" >/sys/class/zram-control/hot_remove 2>/dev/null && loger "Removed ZRAM partition $1"
-	} || loger "Failed to remove ZRAM $1"
+	} || loger e "Failed to remove ZRAM $1"
 }
 
 # resize_zram - Resizes a ZRAM partition and prepares it for swapping
@@ -354,7 +371,7 @@ turnon_zram() {
 	if $BIN/swapon -p 32767 "$1" 2>/dev/null; then
 		loger "ZRAM $1 turned on with priority 32767"
 	else
-		loger "Failed to turn on ZRAM $1"
+		loger e "Failed to turn on ZRAM $1"
 		return 1
 	fi
 }
@@ -504,7 +521,7 @@ archive_service() {
 
 	# Ensure archive directory exists
 	mkdir -p "$archive_dir" || {
-		loger "Failed to create archive directory $archive_dir"
+		loger e "Failed to create archive directory $archive_dir"
 		return 1
 	}
 	loger "Starting archive service for $source_dirs"
@@ -630,7 +647,7 @@ setup_swap() {
 	local swap_filename free_space swap_size available_swaps
 	swap_filename=$NVBASE/fmiop_swap
 	free_space=$(df /data | sed -n '2p' | sed 's/[^0-9 ]*//g' | sed ':a;N;$!ba;s/\n/ /g' | awk '{print $4}')
-	available_swaps=$(find $SWAP_PATTERN 2>/dev/null | sort)
+	available_swaps=$(find $SWAP_FILENAME* 2>/dev/null | sort)
 
 	if [ -z "$available_swaps" ]; then
 		setup_swap_size

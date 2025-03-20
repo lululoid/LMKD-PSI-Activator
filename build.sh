@@ -71,14 +71,14 @@ package_name="packages/$module_name-v${version}_$versionCode-$TAG.zip"
 	fmiop.sh \
 	customize.sh \
 	module.prop \
-	cleaner.zip \
 	./*service.sh \
-	vars.sh \
+	uninstall.sh \
+	ps \
 	action.sh \
 	sed \
 	yq tar \
 	config.yaml \
-	system/bin \
+	system/bin/dynv \
 	$fogimp_pkg
 
 # check_root "You need ROOT to install this module" || su -c "magisk --install-module $package_name"
