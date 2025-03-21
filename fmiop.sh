@@ -391,22 +391,26 @@ update_pressure_report() {
 	memory_pressure=$(get_memory_pressure)
 	module_prop="$MODPATH/module.prop"
 	current_swappiness=$(cat /proc/sys/vm/swappiness)
+	pressure_emoji="🟩"
 
 	# Assign emoji based on memory pressure
-	if [ "$memory_pressure" -gt 80 ]; then
-		pressure_emoji="⚪"
-		loger i "Sleek! It's ($pressure_emoji $memory_pressure), got nothing in RAM huh?"
-		loger i "Smooth as silk."
+	if [ $memory_pressure -ge $((last_memory_pressure + 5)) ] ||
+		[ $memory_pressure -le $((last_memory_pressure - 5)) ]; then
 		last_memory_pressure=$memory_pressure
-	elif [ "$memory_pressure" -gt 60 ]; then
-		pressure_emoji="🟩"
-		loger i "What expected, just normal usage ($pressure_emoji $memory_pressure)"
-	elif [ "$memory_pressure" -gt 40 ]; then
-		pressure_emoji="🟨"
-		loger i "I don't like potato ($pressure_emoji $memory_pressure)"
-	else
-		pressure_emoji="🟥"
-		loger i "Call for ambulance ($pressure_emoji $memory_pressure)"
+		if [ "$memory_pressure" -gt 80 ]; then
+			pressure_emoji="⚪"
+			loger i "Sleek! It's ($pressure_emoji $memory_pressure), got nothing in RAM huh?"
+			loger i "Smooth as silk."
+		elif [ "$memory_pressure" -gt 60 ]; then
+			pressure_emoji="🟩"
+			loger i "What expected, just normal usage ($pressure_emoji $memory_pressure)"
+		elif [ "$memory_pressure" -gt 40 ]; then
+			pressure_emoji="🟨"
+			loger i "I don't like potato ($pressure_emoji $memory_pressure)"
+		else
+			pressure_emoji="🟥"
+			loger i "Call for ambulance ($pressure_emoji $memory_pressure)"
+		fi
 	fi
 
 	# Check if swap is active
@@ -414,12 +418,6 @@ update_pressure_report() {
 		swap_status="✅ Running"
 	else
 		swap_status="❌ Not Running"
-	fi
-
-	# Log update only if memory pressure has changed significantly
-	if [ "$memory_pressure" -ne "$last_memory_pressure" ]; then
-		log -p i -t fmiop "Updating memory pressure report to $memory_pressure"
-		last_memory_pressure=$memory_pressure
 	fi
 
 	# Use sed to replace the values correctly
