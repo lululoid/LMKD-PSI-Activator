@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cmath>
 #include <csignal>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -11,8 +12,10 @@
 #include <map>
 #include <sstream>
 #include <string>
+#include <sys/swap.h> // For swapon(), swapoff()
 #include <thread>
 #include <unistd.h>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 #include <yaml-cpp/yaml.h>
@@ -200,7 +203,7 @@ void save_pid(const string &pid_name, int pid_value) {
 }
 
 // Function to get the smallest priority of active ZRAM swaps
-int get_smlst_priority(const string &filter) {
+int get_smlst_priority() {
   ifstream file(SWAP_PROC_FILE);
   if (!file) {
     ALOGE("Error: Unable to open %s", SWAP_PROC_FILE);
@@ -231,13 +234,11 @@ int get_smlst_priority(const string &filter) {
       }
     }
 
-    if (device.find(filter) != string::npos) {
-      priorities.push_back(priority);
-    }
+    priorities.push_back(priority);
   }
 
   if (priorities.empty()) {
-    ALOGW("No active ZRAM swaps found.");
+    ALOGW("No active swaps found.");
     return -1;
   }
 
@@ -261,33 +262,47 @@ bool is_active(const string &device) {
   return false;
 }
 
-vector<string> get_available_swap(const string &filter, const string &dir) {
+vector<string> get_available_swap() {
   vector<string> available_swaps;
+  vector<string> dir_list = {ZRAM_DIR, SWAP_DIR}; // Directories to check
+  string line;
 
-  // Check if directory exists before iterating
-  if (!fs::exists(dir) || !fs::is_directory(dir)) {
-    ALOGW("Swap directory does not exist or is not accessible: %s",
-          dir.c_str());
-    return available_swaps; // Return empty list
-  }
-
-  for (const auto &entry : fs::directory_iterator(dir)) {
-    string pathStr = entry.path().string();
-
-    if (!filter.empty() && pathStr.find(filter) == string::npos) {
-      continue; // Skip files that don’t match the filter
+  for (const auto &dir : dir_list) {
+    if (!fs::exists(dir)) {
+      ALOGW("Directory does not exist: %s", dir.c_str());
+      continue; // Continue to the next directory
+    }
+    if (!fs::is_directory(dir)) {
+      ALOGW("Path is not a directory: %s", dir.c_str());
+      continue;
     }
 
-    available_swaps.push_back(pathStr);
-    ALOGD("SWAP: %s is available.", pathStr.c_str());
+    bool found_swap = false;
+    for (const auto &entry : fs::directory_iterator(dir)) {
+      if (entry.is_directory())
+        continue; // Skip non-file entries
+
+      string pathStr = entry.path().string();
+      if (pathStr.find("swap") != string::npos ||
+          pathStr.find("zram") != string::npos) { // Filter swap files
+        if (is_active(pathStr)) {
+          ALOGI("ACTIVE SWAP detected: %s",
+                pathStr.c_str()); // Log active swaps
+        } else {
+          ALOGD("INACTIVE SWAP found: %s",
+                pathStr.c_str()); // Log inactive swaps
+          available_swaps.insert(available_swaps.begin(), pathStr);
+        }
+        found_swap = true;
+      }
+    }
+
+    if (!found_swap) {
+      ALOGW("No swap files found in directory: %s", dir.c_str());
+    }
   }
 
-  if (available_swaps.empty()) {
-    ALOGW("No swap available in directory: %s", dir.c_str());
-  }
-
-  sort(available_swaps.begin(), available_swaps.end());
-  return available_swaps;
+  return available_swaps; // Only return inactive swaps
 }
 
 vector<string> get_active_swap() {
@@ -338,10 +353,10 @@ pair<int, int> get_swap_usage(const string &device) {
   return {used_mb, used_percentage}; // Return {used MB, percentage}
 }
 
-vector<string>
-get_deactivation_candidates(int threshold, const string &filter,
-                            const vector<string> last_candidates) {
-  vector<string> candidates = last_candidates;
+unordered_set<string>
+get_deactivation_candidates(int threshold,
+                            const unordered_set<string> last_candidates) {
+  unordered_set<string> candidates = last_candidates;
   vector<string> active_swaps = get_active_swap();
   int low_swap_count = 0;
 
@@ -353,18 +368,18 @@ get_deactivation_candidates(int threshold, const string &filter,
                                  swap) != last_candidates.end();
     if (!is_in_candidates) {
       if (swap.find(SWAP_FILE) != string::npos) {
-        candidates.push_back(swap);
+        candidates.insert(swap);
         ALOGD("%s is in candidates, because it's swap file.", swap.c_str());
       } else if (usage.first > threshold) {
         ALOGD("%s is in candidates, usage(%dMB > %dMB).", swap.c_str(),
               usage.first, threshold);
-        candidates.push_back(swap);
+        candidates.insert(swap);
       } else {
         low_swap_count++;
         if (low_swap_count > 1) {
           ALOGI("Keeping low swap count to 1, adding %s to candidates.",
                 swap.c_str());
-          candidates.push_back(swap);
+          candidates.insert(swap);
           low_swap_count--;
         }
       }
@@ -400,18 +415,19 @@ void dyn_swap_service() {
   bool PRESSURE_BINDING =
       read_config(".virtual_memory.pressure_binding", false);
 
+  vector<string> available_swaps = get_available_swap();
+  vector<string> active_swaps = get_active_swap();
+  unordered_set<string> deactivation_candidates;
   string swap_type = "zram";
-  vector<string> available_swaps = get_available_swap(swap_type, ZRAM_DIR);
-  vector<string> deactivation_candidates;
-  int activation_threshold = ZRAM_ACTIVATION_THRESHOLD;
-  int deactivation_threshold = ZRAM_DEACTIVATION_THRESHOLD;
-  int unbounded = !PRESSURE_BINDING;
+  string last_active_swap;
+  int activation_threshold, deactivation_threshold, unbounded, new_swappiness;
+  int priority = 32767;
 
   while (running) {
     int current_swappiness = read_swappiness();
     if (current_swappiness == -1) {
       ALOGE("Error reading swappiness");
-      break;
+      return;
     }
 
     double memory_metric = read_pressure("memory", "some", "avg60");
@@ -420,21 +436,20 @@ void dyn_swap_service() {
 
     if (isnan(memory_metric) || isnan(cpu_metric) || isnan(io_metric)) {
       ALOGE("Error reading pressure metrics.");
-      break;
+      return;
     }
 
-    int new_swappiness = current_swappiness;
-
-    if (io_metric > IO_PRESSURE_THRESHOLD ||
-        cpu_metric > CPU_PRESSURE_THRESHOLD ||
-        memory_metric > MEMORY_PRESSURE_THRESHOLD) {
+    if (current_swappiness > SWAPPINESS_MIN &&
+        (io_metric > IO_PRESSURE_THRESHOLD ||
+         cpu_metric > CPU_PRESSURE_THRESHOLD ||
+         memory_metric > MEMORY_PRESSURE_THRESHOLD)) {
       new_swappiness =
           max(SWAPPINESS_MIN, current_swappiness - SWAPPINESS_STEP);
       unbounded = true;
-    } else {
+    } else if (current_swappiness < SWAPPINESS_MAX) {
       new_swappiness =
           min(SWAPPINESS_MAX, current_swappiness + SWAPPINESS_STEP);
-      unbounded = (PRESSURE_BINDING) ? false : true;
+      unbounded = !PRESSURE_BINDING;
     }
 
     if (new_swappiness != current_swappiness) {
@@ -443,84 +458,71 @@ void dyn_swap_service() {
     }
 
     if (unbounded) {
-      vector<string> active_swaps = get_active_swap();
+      if (active_swaps.empty()) {
+        if (!available_swaps.empty()) {
+          string first_swap = available_swaps.back();
+          active_swaps.push_back(first_swap);
 
-      if (active_swaps.empty() && !available_swaps.empty()) {
-        string first_swap = available_swaps[0];
-        int smallest_priority = get_smlst_priority(swap_type);
-        int swap_priority =
-            (swap_type == SWAP_FILE) ? smallest_priority-- : 32767;
-        ALOGD("First SWAP: %s", first_swap.c_str());
-        ALOGI("No active SWAP found. Activating %s with priority %d",
-              first_swap.c_str(), swap_priority);
-
-        // Instead of system(), consider direct manipulation if possible
-        system(("swapon -p " + to_string(swap_priority) + " " + first_swap)
-                   .c_str());
-        active_swaps = get_active_swap();
-      }
-
-      if (!active_swaps.empty()) {
-        string last_active_swap = active_swaps.back();
+          if (swapon(first_swap.c_str(), priority) != 0) {
+            ALOGE("Failed to activate swap: %s", first_swap.c_str());
+          } else {
+            available_swaps.pop_back(); // Use pop_back() instead of `erase()`
+          }
+        }
+      } else {
+        last_active_swap = active_swaps.back();
         pair<int, int> lst_swap_usage = get_swap_usage(last_active_swap);
+        activation_threshold =
+            (last_active_swap.find(SWAP_FILE) != string::npos)
+                ? SWAP_ACTIVATION_THRESHOLD
+                : ZRAM_ACTIVATION_THRESHOLD;
+        deactivation_threshold =
+            (last_active_swap.find(SWAP_FILE) != string::npos)
+                ? SWAP_DEACTIVATION_THRESHOLD
+                : ZRAM_DEACTIVATION_THRESHOLD;
 
         if (lst_swap_usage.second > activation_threshold) {
-          string next_swap;
-          for (const auto &zram : available_swaps) {
-            if (!is_active(zram)) {
-              next_swap = zram;
-              ALOGD("Next SWAP: %s", next_swap.c_str());
-              break;
-            }
-          }
+          string next_swap = available_swaps.back();
+          priority = get_smlst_priority();
 
-          if (!next_swap.empty()) {
-            int nxt_priority = get_smlst_priority(swap_type);
-            if (nxt_priority != -1) {
-              nxt_priority--;
-              ALOGI("Activating %s at %d%% usage with priority %d",
-                    next_swap.c_str(), lst_swap_usage.second, nxt_priority);
-              system(("swapon -p " + to_string(nxt_priority) + " " + next_swap)
-                         .c_str());
-            }
+          if (swapon(next_swap.c_str(), priority--) == 0) {
+            ALOGE("SWAP: %s turned on with priority %d", next_swap.c_str(),
+                  priority);
+            active_swaps.push_back(next_swap);
+            available_swaps.erase(remove(available_swaps.begin(),
+                                         available_swaps.end(), next_swap),
+                                  available_swaps.end());
           } else {
-            ALOGW("No additional SWAP available; Switch to SWAP file.");
-            swap_type = (swap_type == SWAP_FILE) ? "zram" : SWAP_FILE;
-            string dir = (swap_type == SWAP_FILE) ? SWAP_DIR : ZRAM_DIR;
-            available_swaps = get_available_swap(swap_type, dir);
-            activation_threshold =
-                (activation_threshold == ZRAM_ACTIVATION_THRESHOLD)
-                    ? SWAP_ACTIVATION_THRESHOLD
-                    : ZRAM_ACTIVATION_THRESHOLD;
-            deactivation_threshold =
-                (deactivation_threshold == SWAP_DEACTIVATION_THRESHOLD)
-                    ? ZRAM_ACTIVATION_THRESHOLD
-                    : SWAP_DEACTIVATION_THRESHOLD;
+            ALOGE("Failed to activate swap: %s with priority: %d",
+                  next_swap.c_str(), priority);
+          }
+        } else if (last_active_swap.empty() &&
+                   lst_swap_usage.first < deactivation_threshold) {
+          deactivation_candidates = get_deactivation_candidates(
+              deactivation_threshold, deactivation_candidates);
+          bool is_in_candidates =
+              (deactivation_candidates.find(last_active_swap) !=
+               deactivation_candidates.end());
+
+          ALOGI("SWAP deactivation threshold reached (Usage: %dMB < %dMB).",
+                lst_swap_usage.first, deactivation_threshold);
+
+          if (is_in_candidates) {
+            if (swapoff(last_active_swap.c_str()) == 0) {
+              ALOGI("Turning off %s.", last_active_swap.c_str());
+              deactivation_candidates.erase(last_active_swap);
+              available_swaps.push_back(last_active_swap);
+            } else {
+              ALOGE("Failed to deactivate swap: %s", last_active_swap.c_str());
+            }
           }
         }
 
-        deactivation_candidates = get_deactivation_candidates(
-            deactivation_threshold, swap_type, deactivation_candidates);
-
-        for (const auto &swap : deactivation_candidates) {
-          pair<int, int> usage = get_swap_usage(swap);
-
-          if (usage.first < deactivation_threshold) {
-            ALOGI("SWAP deactivation threshold reached (Usage: %dMB < %dMB).",
-                  usage.first, deactivation_threshold);
-            ALOGI("Turning off %s.", last_active_swap.c_str());
-            system(("swapoff " + last_active_swap).c_str());
-            deactivation_candidates.erase(
-                remove(deactivation_candidates.begin(),
-                       deactivation_candidates.end(), last_active_swap),
-                deactivation_candidates.end());
-          }
+        // Sleep for 1 second (100ms * 10 loops)
+        for (int i = 0; i < 10 && running; ++i) {
+          this_thread::sleep_for(chrono::milliseconds(100));
         }
       }
-    }
-
-    for (int i = 0; i < 10 && running; ++i) {
-      this_thread::sleep_for(chrono::milliseconds(100));
     }
   }
 }
