@@ -410,9 +410,9 @@ void dyn_swap_service() {
     }
 
     if (new_swappiness != current_swappiness) {
-      if (new_swappiness >= last_swappiness + 5 ||
-          new_swappiness <= last_swappiness - 5) {
-        ALOGI("Swappiness adjusted to %d", new_swappiness);
+      if (new_swappiness >= last_swappiness + 10 ||
+          new_swappiness <= last_swappiness - 10) {
+        ALOGI("Swappiness -> %d", new_swappiness);
         last_swappiness = new_swappiness;
       }
       write_swappiness(new_swappiness);
@@ -426,9 +426,9 @@ void dyn_swap_service() {
 
           if (swapon(first_swap.c_str(), 0) == 0) {
             ALOGE("SWAP: %s turned on.", first_swap.c_str());
+            available_swaps.pop_back(); // Use pop_back() instead of `erase()`
           } else {
             ALOGE("Failed to activate swap: %s", first_swap.c_str());
-            available_swaps.pop_back(); // Use pop_back() instead of `erase()`
           }
         }
       } else {
