@@ -378,6 +378,7 @@ void dyn_swap_service() {
   string swap_type = "zram";
   string last_active_swap;
   int activation_threshold, deactivation_threshold, unbounded, new_swappiness;
+  int last_swappiness = read_swappiness();
 
   while (running) {
     int current_swappiness = read_swappiness();
@@ -408,10 +409,13 @@ void dyn_swap_service() {
       unbounded = !PRESSURE_BINDING;
     }
 
-    if (current_swappiness >= new_swappiness + 5 ||
-        current_swappiness <= new_swappiness - 5) {
+    if (new_swappiness != current_swappiness) {
+      if (new_swappiness >= last_swappiness + 5 ||
+          new_swappiness <= last_swappiness - 5) {
+        ALOGI("Swappiness adjusted to %d", new_swappiness);
+        last_swappiness = new_swappiness;
+      }
       write_swappiness(new_swappiness);
-      ALOGI("Swappiness adjusted to %d", new_swappiness);
     }
 
     if (unbounded) {
@@ -472,12 +476,12 @@ void dyn_swap_service() {
             }
           }
         }
-
-        // Sleep for 1 second (100ms * 10 loops)
-        for (int i = 0; i < 10 && running; ++i) {
-          this_thread::sleep_for(chrono::milliseconds(100));
-        }
       }
+    }
+
+    // Sleep for 1 second (100ms * 10 loops)
+    for (int i = 0; i < 10 && running; ++i) {
+      this_thread::sleep_for(chrono::milliseconds(100));
     }
   }
 }
