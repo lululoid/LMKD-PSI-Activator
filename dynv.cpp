@@ -202,49 +202,6 @@ void save_pid(const string &pid_name, int pid_value) {
         found ? "(Updated)" : "(New)");
 }
 
-// Function to get the smallest priority of active ZRAM swaps
-int get_smlst_priority() {
-  ifstream file(SWAP_PROC_FILE);
-  if (!file) {
-    ALOGE("Error: Unable to open %s", SWAP_PROC_FILE);
-    return -1;
-  }
-
-  string line;
-  vector<int> priorities;
-
-  // Skip the first line (header)
-  getline(file, line);
-
-  while (getline(file, line)) {
-    istringstream iss(line);
-    string device;
-    int priority;
-    string temp;
-
-    // Extract values: device name is first, priority is the 5th column
-    for (int i = 0; i < 5; ++i) {
-      if (!(iss >> temp)) {
-        break;
-      }
-      if (i == 0) {
-        device = temp;
-      } else if (i == 4) {
-        priority = stoi(temp);
-      }
-    }
-
-    priorities.push_back(priority);
-  }
-
-  if (priorities.empty()) {
-    ALOGW("No active swaps found.");
-    return -1;
-  }
-
-  return *min_element(priorities.begin(), priorities.end());
-}
-
 // Function to check if a ZRAM device is active
 bool is_active(const string &device) {
   ifstream file(SWAP_PROC_FILE);
@@ -421,7 +378,6 @@ void dyn_swap_service() {
   string swap_type = "zram";
   string last_active_swap;
   int activation_threshold, deactivation_threshold, unbounded, new_swappiness;
-  int priority = 32767;
 
   while (running) {
     int current_swappiness = read_swappiness();
@@ -463,9 +419,10 @@ void dyn_swap_service() {
           string first_swap = available_swaps.back();
           active_swaps.push_back(first_swap);
 
-          if (swapon(first_swap.c_str(), priority) != 0) {
-            ALOGE("Failed to activate swap: %s", first_swap.c_str());
+          if (swapon(first_swap.c_str(), 0) == 0) {
+            ALOGE("SWAP: %s turned on.", first_swap.c_str());
           } else {
+            ALOGE("Failed to activate swap: %s", first_swap.c_str());
             available_swaps.pop_back(); // Use pop_back() instead of `erase()`
           }
         }
@@ -483,18 +440,15 @@ void dyn_swap_service() {
 
         if (lst_swap_usage.second > activation_threshold) {
           string next_swap = available_swaps.back();
-          priority = get_smlst_priority();
 
-          if (swapon(next_swap.c_str(), priority--) == 0) {
-            ALOGE("SWAP: %s turned on with priority %d", next_swap.c_str(),
-                  priority);
+          if (swapon(next_swap.c_str(), 0) == 0) {
+            ALOGE("SWAP: %s turned on", next_swap.c_str());
             active_swaps.push_back(next_swap);
             available_swaps.erase(remove(available_swaps.begin(),
                                          available_swaps.end(), next_swap),
                                   available_swaps.end());
           } else {
-            ALOGE("Failed to activate swap: %s with priority: %d",
-                  next_swap.c_str(), priority);
+            ALOGE("Failed to activate swap: %s", next_swap.c_str());
           }
         } else if (last_active_swap.empty() &&
                    lst_swap_usage.first < deactivation_threshold) {
