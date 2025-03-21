@@ -408,7 +408,8 @@ void dyn_swap_service() {
       unbounded = !PRESSURE_BINDING;
     }
 
-    if (new_swappiness != current_swappiness) {
+    if (new_swappiness > current_swappiness - 10 ||
+        new_swappiness < new_swappiness - 10) {
       write_swappiness(new_swappiness);
       ALOGI("Swappiness adjusted to %d", new_swappiness);
     }

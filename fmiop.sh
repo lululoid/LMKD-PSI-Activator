@@ -386,7 +386,7 @@ turnon_zram() {
 last_memory_pressure=$(get_memory_pressure)
 
 update_pressure_report() {
-	local memory_pressure current_swappiness module_prop prop_bcp pressure_emoji swap_status desc
+	local memory_pressure current_swappiness module_prop pressure_emoji swap_status
 
 	memory_pressure=$(get_memory_pressure)
 	module_prop="$MODPATH/module.prop"
@@ -395,12 +395,18 @@ update_pressure_report() {
 	# Assign emoji based on memory pressure
 	if [ "$memory_pressure" -gt 80 ]; then
 		pressure_emoji="⚪"
+		loger i "Sleek! It's ($pressure_emoji $memory_pressure), got nothing in RAM huh?"
+		loger i "Smooth as silk."
+		last_memory_pressure=$memory_pressure
 	elif [ "$memory_pressure" -gt 60 ]; then
 		pressure_emoji="🟩"
+		loger i "What expected, just normal usage ($pressure_emoji $memory_pressure)"
 	elif [ "$memory_pressure" -gt 40 ]; then
 		pressure_emoji="🟨"
+		loger i "I don't like potato ($pressure_emoji $memory_pressure)"
 	else
 		pressure_emoji="🟥"
+		loger i "Call for ambulance ($pressure_emoji $memory_pressure)"
 	fi
 
 	# Check if swap is active
