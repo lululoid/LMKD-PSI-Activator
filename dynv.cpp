@@ -462,27 +462,25 @@ void dyn_swap_service() {
       return;
     }
 
-    if (current_swappiness > SWAPPINESS_MIN) {
-      if ((io_metric > IO_PRESSURE_THRESHOLD ||
-           cpu_metric > CPU_PRESSURE_THRESHOLD ||
-           memory_metric > MEMORY_PRESSURE_THRESHOLD)) {
-        new_swappiness =
-            max(SWAPPINESS_MIN, current_swappiness - SWAPPINESS_STEP);
-        unbounded = true;
-      } else if (current_swappiness < SWAPPINESS_MAX) {
-        new_swappiness =
-            min(SWAPPINESS_MAX, current_swappiness + SWAPPINESS_STEP);
-        unbounded = !PRESSURE_BINDING;
-      }
+    if ((io_metric > IO_PRESSURE_THRESHOLD ||
+         cpu_metric > CPU_PRESSURE_THRESHOLD ||
+         memory_metric > MEMORY_PRESSURE_THRESHOLD)) {
+      new_swappiness =
+          max(SWAPPINESS_MIN, current_swappiness - SWAPPINESS_STEP);
+      unbounded = true;
+    } else if (current_swappiness < SWAPPINESS_MAX) {
+      new_swappiness =
+          min(SWAPPINESS_MAX, current_swappiness + SWAPPINESS_STEP);
+      unbounded = !PRESSURE_BINDING;
+    }
 
-      if (new_swappiness != current_swappiness) {
-        if (new_swappiness >= last_swappiness + 10 ||
-            new_swappiness <= last_swappiness - 10) {
-          ALOGI("Swappiness -> %d", new_swappiness);
-          last_swappiness = new_swappiness;
-        }
-        write_swappiness(new_swappiness);
+    if (new_swappiness != current_swappiness) {
+      if (new_swappiness >= last_swappiness + 10 ||
+          new_swappiness <= last_swappiness - 10) {
+        ALOGI("Swappiness -> %d", new_swappiness);
+        last_swappiness = new_swappiness;
       }
+      write_swappiness(new_swappiness);
     }
 
     if (unbounded) {
