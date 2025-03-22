@@ -483,15 +483,11 @@ void dyn_swap_service() {
         } else if (lst_swap_usage.first < deactivation_threshold) {
           deactivation_candidates = get_deactivation_candidates(
               deactivation_threshold, deactivation_candidates);
-          bool is_in_candidates =
-              (deactivation_candidates.find(last_active_swap) !=
-               deactivation_candidates.end());
 
-          if (is_in_candidates) {
+          if (!deactivation_candidates.empty()) {
+            ALOGI("SWAP deactivation threshold reached (Usage: %dMB < %dMB).",
+                  lst_swap_usage.first, deactivation_threshold);
             if (swapoff(last_active_swap.c_str()) == 0) {
-              ALOGI("SWAP deactivation threshold reached (Usage: %dMB < %dMB).",
-                    lst_swap_usage.first, deactivation_threshold);
-
               ALOGI("Turning off %s.", last_active_swap.c_str());
               deactivation_candidates.erase(last_active_swap);
               active_swaps.erase(remove(active_swaps.begin(),

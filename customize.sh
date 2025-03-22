@@ -187,3 +187,8 @@ fi
 setup_swap
 main
 update_config
+
+if ! kill -0 "$(pidof dynv)"; then
+	uprint "
+⟩ REBOOT now"
+fi
