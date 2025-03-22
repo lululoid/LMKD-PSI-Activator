@@ -15,7 +15,6 @@
 #include <sys/swap.h> // For swapon(), swapoff()
 #include <thread>
 #include <unistd.h>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 #include <yaml-cpp/yaml.h>
@@ -336,10 +335,10 @@ pair<int, int> get_swap_usage(const string &device) {
   return {used_mb, used_percentage}; // Return {used MB, percentage}
 }
 
-unordered_set<string>
+vector<string>
 get_deactivation_candidates(int threshold,
-                            const unordered_set<string> last_candidates) {
-  unordered_set<string> candidates = last_candidates;
+                            const vector<string> last_candidates) {
+  vector<string> candidates = last_candidates;
   vector<string> active_swaps = get_active_swap();
   int low_swap_count = 0;
 
@@ -351,18 +350,18 @@ get_deactivation_candidates(int threshold,
                                  swap) != last_candidates.end();
     if (!is_in_candidates) {
       if (swap.find(SWAP_FILE) != string::npos) {
-        candidates.insert(swap);
+        candidates.push_back(swap);
         ALOGD("%s is in candidates, because it's swap file.", swap.c_str());
       } else if (usage.first > threshold) {
         ALOGD("%s is in candidates, usage(%dMB > %dMB).", swap.c_str(),
               usage.first, threshold);
-        candidates.insert(swap);
+        candidates.push_back(swap);
       } else {
         low_swap_count++;
         if (low_swap_count > 1) {
           ALOGI("Keeping low swap count to 1, adding %s to candidates.",
                 swap.c_str());
-          candidates.insert(swap);
+          candidates.push_back(swap);
           low_swap_count--;
         }
       }
@@ -400,7 +399,7 @@ void dyn_swap_service() {
 
   vector<string> available_swaps = get_available_swap();
   vector<string> active_swaps = get_active_swap();
-  unordered_set<string> deactivation_candidates;
+  vector<string> deactivation_candidates;
   string swap_type = "zram";
   string last_active_swap;
   int activation_threshold, deactivation_threshold, unbounded, new_swappiness;
@@ -480,20 +479,23 @@ void dyn_swap_service() {
           } else {
             ALOGE("Failed to activate swap: %s", next_swap.c_str());
           }
-        } else if (lst_swap_usage.first < deactivation_threshold) {
+        } else {
           deactivation_candidates = get_deactivation_candidates(
               deactivation_threshold, deactivation_candidates);
+          string candidate = deactivation_candidates.back();
+          pair<int, int> candidate_usage = get_swap_usage(candidate);
 
-          if (!deactivation_candidates.empty()) {
-            ALOGI("SWAP deactivation threshold reached (Usage: %dMB < %dMB).",
-                  lst_swap_usage.first, deactivation_threshold);
-            if (swapoff(last_active_swap.c_str()) == 0) {
-              ALOGI("Turning off %s.", last_active_swap.c_str());
-              deactivation_candidates.erase(last_active_swap);
-              active_swaps.erase(remove(active_swaps.begin(),
-                                        active_swaps.end(), last_active_swap),
-                                 active_swaps.end());
-              available_swaps.push_back(last_active_swap);
+          if (candidate_usage.first < deactivation_threshold) {
+            if (swapoff(candidate.c_str()) == 0) {
+              ALOGI("Turning off %s.", candidate.c_str());
+              deactivation_candidates.erase(
+                  remove(deactivation_candidates.begin(),
+                         deactivation_candidates.end(), candidate),
+                  deactivation_candidates.end());
+              active_swaps.erase(
+                  remove(active_swaps.begin(), active_swaps.end(), candidate),
+                  active_swaps.end());
+              available_swaps.push_back(candidate);
             } else {
               ALOGE("Failed to deactivate swap: %s", last_active_swap.c_str());
             }
