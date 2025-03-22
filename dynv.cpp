@@ -371,6 +371,11 @@ get_deactivation_candidates(int threshold,
   return candidates;
 }
 
+void remove_element(const string &element, vector<string> &elements) {
+  elements.erase(remove(elements.begin(), elements.end(), element),
+                 elements.end());
+}
+
 /**
  * Dynamic swappiness adjustment service.
  */
@@ -443,6 +448,7 @@ void dyn_swap_service() {
     }
 
     if (unbounded) {
+      // If there's no swap turn on first swap
       if (active_swaps.empty()) {
         if (!available_swaps.empty()) {
           string first_swap = available_swaps.back();
@@ -473,9 +479,7 @@ void dyn_swap_service() {
           if ((swapon(next_swap.c_str(), 0)) == 0) {
             ALOGE("SWAP: %s turned on", next_swap.c_str());
             active_swaps.push_back(next_swap);
-            available_swaps.erase(remove(available_swaps.begin(),
-                                         available_swaps.end(), next_swap),
-                                  available_swaps.end());
+            remove_element(next_swap, available_swaps);
           } else {
             ALOGE("Failed to activate swap: %s", next_swap.c_str());
           }
@@ -488,13 +492,8 @@ void dyn_swap_service() {
           if (candidate_usage.first < deactivation_threshold) {
             if (swapoff(candidate.c_str()) == 0) {
               ALOGI("Turning off %s.", candidate.c_str());
-              deactivation_candidates.erase(
-                  remove(deactivation_candidates.begin(),
-                         deactivation_candidates.end(), candidate),
-                  deactivation_candidates.end());
-              active_swaps.erase(
-                  remove(active_swaps.begin(), active_swaps.end(), candidate),
-                  active_swaps.end());
+              remove_element(candidate, deactivation_candidates);
+              remove_element(candidate, active_swaps);
               available_swaps.push_back(candidate);
             } else {
               ALOGE("Failed to deactivate swap: %s", last_active_swap.c_str());
