@@ -340,6 +340,28 @@ void remove_element(const string &element, vector<string> &elements) {
                  elements.end());
 }
 
+int get_lscount(int threshold) {
+  string line;
+  ifstream proc_file(SWAP_PROC_FILE);
+  int low_swap_count = 0;
+
+  getline(proc_file, line); // Skip header line
+
+  int used = 0;
+  while (getline(proc_file, line)) {
+    istringstream iss(line);
+    string temp;
+    iss >> temp >> temp >> temp >> used;
+    int used_mb = (used / 1024);
+
+    if (used_mb < threshold) {
+      low_swap_count++;
+    }
+  }
+
+  return low_swap_count;
+}
+
 /**
  * Dynamic swappiness adjustment service.
  */
@@ -373,8 +395,6 @@ void dyn_swap_service() {
   string last_active_swap;
   int activation_threshold, deactivation_threshold, unbounded, new_swappiness;
   int last_swappiness = read_swappiness();
-  int low_swap_count = 0;
-  bool idle = false;
   bool found_candidate = false;
 
   while (running) {
@@ -467,14 +487,10 @@ void dyn_swap_service() {
                 ALOGD("%s is in candidates, because it's swap file.",
                       swap.c_str());
                 found_candidate = true;
-              } else {
-                low_swap_count++;
-                if (low_swap_count > 1) {
-                  ALOGI("Keeping low swap count to 1, adding %s to candidates.",
-                        swap.c_str());
-                  low_swap_count--;
-                  found_candidate = true;
-                }
+              } else if (get_lscount(deactivation_threshold) > 1) {
+                ALOGI("Keeping low swap count to 1, adding %s to candidates.",
+                      swap.c_str());
+                found_candidate = true;
               }
 
               if (found_candidate) {
@@ -487,15 +503,9 @@ void dyn_swap_service() {
                   remove_element(swap, deactivation_candidates);
                   remove_element(swap, active_swaps);
                   available_swaps.push_back(swap);
-                  idle = false;
                   ALOGI("Swap: %s is turned off.", swap.c_str());
                 } else {
                   ALOGE("Failed to deactivate swap: %s", swap.c_str());
-                }
-              } else {
-                if (!idle) {
-                  ALOGW("No candidate to deactivate.");
-                  idle = true;
                 }
               }
             }
