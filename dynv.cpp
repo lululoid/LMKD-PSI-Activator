@@ -409,6 +409,7 @@ void dyn_swap_service() {
   string last_active_swap;
   int activation_threshold, deactivation_threshold, unbounded, new_swappiness;
   int last_swappiness = read_swappiness();
+  bool idle = false;
 
   while (running) {
     int current_swappiness = read_swappiness();
@@ -438,9 +439,9 @@ void dyn_swap_service() {
       unbounded = !PRESSURE_BINDING;
     }
 
-    if (new_swappiness != current_swappiness) {
-      if (new_swappiness >= last_swappiness + 10 ||
-          new_swappiness <= last_swappiness - 10) {
+    if (new_swappiness != current_swappiness &&
+        new_swappiness > SWAPPINESS_MIN) {
+      if (abs(last_swappiness - new_swappiness) >= 10) {
         ALOGI("Swappiness -> %d", new_swappiness);
         last_swappiness = new_swappiness;
       }
@@ -497,6 +498,10 @@ void dyn_swap_service() {
               available_swaps.push_back(candidate);
             } else {
               ALOGE("Failed to deactivate swap: %s", last_active_swap.c_str());
+            }
+          } else {
+            if (!idle) {
+              ALOGW("No candidate to deactivate.");
             }
           }
         }
@@ -593,8 +598,8 @@ int main() {
   ALOGI("Current PID: %d", current_pid);
   save_pid("dyn_swap_service", current_pid);
 
-  std::thread adjust_thread(dyn_swap_service);
-  std::thread fmiop_thread(fmiop);
+  thread adjust_thread(dyn_swap_service);
+  thread fmiop_thread(fmiop);
 
   adjust_thread.join();
   fmiop_thread.join();
