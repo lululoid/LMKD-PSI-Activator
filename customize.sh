@@ -152,23 +152,27 @@ update_config() {
 	if [ ! -f "$CONFIG_FILE" ]; then
 		mkdir -p $FMIOP_DIR
 		cp $current_config $CONFIG_FILE
-		uprint "
-⟩ Config is located in $CONFIG_FILE"
+		config_ready=true
+		please_reboot=true
 	elif [ "$(echo "$last_config_v 0.2" | awk '{print ($1 == $2) ? 1 : 0}')" -eq 1 ]; then
 		mkdir -p $FMIOP_DIR
 		cp $current_config $CONFIG_FILE
-		uprint "
-⟩ Config is located in $CONFIG_FILE"
+		config_ready=true
 	elif [ "$(echo "$last_config_v 0.4" | awk '{print ($1 == $2) ? 1 : 0}')" -eq 1 ]; then
 		mkdir -p $FMIOP_DIR
 		cp $current_config $CONFIG_FILE
-		uprint "
-⟩ Config is located in $CONFIG_FILE"
 	elif [ "$last_config_v" = "null" ] || [ $is_update -eq 1 ]; then
 		yq ea -i 'select(fileIndex == 0) * select(fileIndex > 0) | sort_keys(.)' $CONFIG_FILE $current_config
 		uprint "
 ⟩ Config: $CONFIG_FILE is updated"
 	fi
+
+	[ $config_ready ] &&
+		uprint "
+⟩ Config is located in $CONFIG_FILE"
+	[ $please_reboot ] &&
+		uprint "
+⟩ REBOOT now"
 }
 
 set_permissions
@@ -187,8 +191,3 @@ fi
 setup_swap
 main
 update_config
-
-if ! kill -0 "$(pidof dynv)"; then
-	uprint "
-⟩ REBOOT now"
-fi

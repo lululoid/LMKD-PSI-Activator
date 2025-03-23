@@ -12,6 +12,7 @@
 #include <map>
 #include <sstream>
 #include <string>
+#include <sys/stat.h>
 #include <sys/swap.h> // For swapon(), swapoff()
 #include <thread>
 #include <unistd.h>
@@ -599,6 +600,38 @@ void fmiop() {
 
 int main() {
   signal(SIGINT, signal_handler);
+
+  pid_t pid, sid;
+
+  pid = fork();
+
+  if (pid < 0) {
+    exit(EXIT_FAILURE);
+  }
+
+  if (pid > 0) {
+    exit(EXIT_SUCCESS); // Parent process exits
+  }
+
+  // Set file mode creation mask to 0
+  umask(0);
+
+  // Create a new session ID
+  sid = setsid();
+  if (sid < 0) {
+    ALOGE("Failed to create new session: %s", strerror(errno));
+    exit(EXIT_FAILURE);
+  }
+
+  if (chdir("/") < 0) {
+    ALOGE("Failed to change working directory: %s", strerror(errno));
+    exit(EXIT_FAILURE);
+  }
+
+  // Close standard file descriptors
+  close(STDIN_FILENO);
+  close(STDOUT_FILENO);
+  close(STDERR_FILENO);
 
   pid_t current_pid = getpid();
   ALOGI("Current PID: %d", current_pid);
