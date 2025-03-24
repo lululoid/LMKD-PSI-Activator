@@ -675,21 +675,19 @@ make_swap() {
 }
 
 setup_swap() {
-	local swap_filename free_space swap_size available_swaps
-	swap_filename=$NVBASE/fmiop_swap
+	local free_space swap_size available_swaps
 	free_space=$(df /data | sed -n '2p' | sed 's/[^0-9 ]*//g' | sed ':a;N;$!ba;s/\n/ /g' | awk '{print $4}')
 	available_swaps=$(find $SWAP_FILENAME* 2>/dev/null | sort)
 
 	if [ -z "$available_swaps" ]; then
 		setup_swap_size
-		if [ "$free_space" -ge "$swap_size" ] && [ "$swap_size" != 0 ]; then
+		if [ "$free_space" -ge "$swap_size" ] && [ "$swap_size" -gt 0 ]; then
 			uprint "
 ⟩ Starting making SWAP. Please wait a moment...
   $((free_space / 1024))MB available. $((swap_size / 1024))MB needed"
-			zram_priority=$(grep "/dev/block/zram0" /proc/swaps | awk '{print $5}')
 			swap_count=$((swap_size / quarter_gb))
 			for num in $(seq $swap_count); do
-				make_swap "$quarter_gb" "$swap_filename.$num"
+				make_swap "$quarter_gb" "$SWAP_FILENAME.$num"
 			done
 			uprint "  › SWAP creation is done."
 		elif [ $swap_size -eq 0 ]; then

@@ -26,29 +26,37 @@ remove_previous_swap() {
   Press VOLUME - to cancel
   "
 
-	while true; do
-		if get_key_event 'KEY_VOLUMEUP *DOWN'; then
-			available_swaps=$(find $SWAP_PATTERN 2>/dev/null | sort)
+	if [ -n "$SWAP_FILENAME" ]; then
+		while true; do
+			if get_key_event 'KEY_VOLUMEUP *DOWN'; then
+				available_swaps=$(find $SWAP_FILENAME* 2>/dev/null | sort)
 
-			for swap in $available_swaps; do
-				swapoff $swap
-				rm -rf $swap && uprint "  › Swap file: $swap removed."
-			done
+				for swap in $available_swaps; do
+					swapoff $swap
+					rm -rf $swap && uprint "  › Swap file: $swap removed."
+				done
 
-			uprint "
+				uprint "
 ⟩ Press action again to remake SWAP."
-			break
-		elif get_key_event 'KEY_VOLUMEDOWN *DOWN'; then
-			uprint "  › Action cancelled."
-			break
-		fi
-	done
+				break
+			elif get_key_event 'KEY_VOLUMEDOWN *DOWN'; then
+				uprint "  › Action cancelled."
+				break
+			fi
+		done
+	else
+		uprint "
+- Error, SWAP_FILENAME variable is missing"
+	fi
 	kill -9 $capture_pid
 }
 
-if [ ! -f $SWAP_PATTERN ]; then
-	uprint "⟩ Remaking SWAP option"
-	setup_swap
-else
-	remove_previous_swap
-fi
+for swap in "$SWAP_FILENAME"*; do
+	if [ ! -f $swap ]; then
+		uprint "⟩ Remaking SWAP option"
+		setup_swap
+	else
+		remove_previous_swap
+	fi
+	break
+done
