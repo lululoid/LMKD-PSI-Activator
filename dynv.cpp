@@ -363,6 +363,25 @@ int get_lscount(int threshold) {
   return low_swap_count;
 }
 
+int get_memory_pressure() {
+  ifstream file("/proc/meminfo");
+  string line;
+  int pressure = 0;
+
+  while (getline(file, line)) {
+    if (line.find("MemAvailable") != string::npos) {
+      istringstream iss(line);
+      string label;
+      int available_mem;
+      iss >> label >> available_mem;
+      pressure = 100 - (available_mem * 100 / 4000000); // Example calculation
+      break;
+    }
+  }
+
+  return pressure;
+}
+
 /**
  * Dynamic swappiness adjustment service.
  */
@@ -394,9 +413,9 @@ void dyn_swap_service() {
   vector<string> deactivation_candidates;
   string swap_type = "zram";
   string last_active_swap;
-  int activation_threshold, deactivation_threshold, unbounded, new_swappiness;
+  int activation_threshold, deactivation_threshold, new_swappiness;
   int last_swappiness = read_swappiness();
-  bool found_candidate = false;
+  bool found_candidate = false, unbounded = true, no_pressure = false;
 
   while (running) {
     int current_swappiness = read_swappiness();
@@ -411,12 +430,13 @@ void dyn_swap_service() {
 
     if (isnan(memory_metric) || isnan(cpu_metric) || isnan(io_metric)) {
       ALOGE("Error reading pressure metrics.");
-      return;
+      no_pressure = true;
     }
 
     if ((io_metric > IO_PRESSURE_THRESHOLD ||
          cpu_metric > CPU_PRESSURE_THRESHOLD ||
-         memory_metric > MEMORY_PRESSURE_THRESHOLD)) {
+         memory_metric > MEMORY_PRESSURE_THRESHOLD) ||
+        no_pressure) {
       new_swappiness =
           max(SWAPPINESS_MIN, current_swappiness - SWAPPINESS_STEP);
       unbounded = true;
@@ -428,7 +448,9 @@ void dyn_swap_service() {
 
     if (new_swappiness != current_swappiness &&
         new_swappiness > SWAPPINESS_MIN) {
-      if (abs(last_swappiness - new_swappiness) >= 10) {
+      if (abs(last_swappiness - new_swappiness) >= 10 ||
+          new_swappiness == SWAPPINESS_MIN ||
+          new_swappiness == SWAPPINESS_MAX) {
         ALOGI("Swappiness -> %d", new_swappiness);
         last_swappiness = new_swappiness;
       }
