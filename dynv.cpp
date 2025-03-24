@@ -413,8 +413,9 @@ void dyn_swap_service() {
   vector<string> deactivation_candidates;
   string swap_type = "zram";
   string last_active_swap;
-  int activation_threshold, deactivation_threshold, new_swappiness;
+  int activation_threshold, deactivation_threshold;
   int last_swappiness = read_swappiness();
+  int new_swappiness = last_swappiness;
   bool found_candidate = false, unbounded = true, no_pressure = false;
 
   while (running) {
@@ -437,12 +438,10 @@ void dyn_swap_service() {
          cpu_metric > CPU_PRESSURE_THRESHOLD ||
          memory_metric > MEMORY_PRESSURE_THRESHOLD) ||
         no_pressure) {
-      new_swappiness =
-          max(SWAPPINESS_MIN, current_swappiness - SWAPPINESS_STEP);
+      new_swappiness = max(SWAPPINESS_MIN, new_swappiness - SWAPPINESS_STEP);
       unbounded = true;
     } else {
-      new_swappiness =
-          min(SWAPPINESS_MAX, current_swappiness + SWAPPINESS_STEP);
+      new_swappiness = min(SWAPPINESS_MAX, new_swappiness + SWAPPINESS_STEP);
       unbounded = !PRESSURE_BINDING;
     }
 

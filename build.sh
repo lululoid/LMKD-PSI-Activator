@@ -3,7 +3,7 @@ set -e # Exit on error
 
 TAG="beta"
 INSTALL=false          # Default: No installation
-HASH_FILE=".dynv_hash" # File to store the last build hash
+HASH_FILE=".dynv_hash" # File to store last build hash
 
 # Root Check Function
 check_root() {
@@ -76,6 +76,31 @@ should_rebuild_dynv() {
 	return 0 # Rebuild needed
 }
 
+# Generate Changelog from Git
+generate_changelog() {
+	local version="$1"
+	local versionCode="$2"
+	local changelog_file="fmiop-v${version}_${versionCode}-changelog.md"
+
+	echo "# Changelog for v${version} (Build ${versionCode})" >"$changelog_file"
+	echo "" >>"$changelog_file"
+
+	# Get last version commit hash
+	local last_version_commit
+	last_version_commit=$(git log --grep="version=v" --pretty=format:"%H" -n 1)
+
+	if [[ -n "$last_version_commit" ]]; then
+		git log --pretty=format:"- %s (%an, %ad)" --date=short "$last_version_commit"..HEAD >>"$changelog_file"
+	else
+		git log --pretty=format:"- %s (%an, %ad)" --date=short >>"$changelog_file"
+	fi
+
+	echo "" >>"$changelog_file"
+	echo "- Auto-generated from Git commits" >>"$changelog_file"
+
+	echo "- Changelog generated: $changelog_file"
+}
+
 # Parse arguments
 while getopts ":i" opt; do
 	case "$opt" in
@@ -105,6 +130,9 @@ main() {
 
 	update_json update_config.json "$versionCode" "$version"
 
+	# Generate Changelog
+	generate_changelog "$version" "$versionCode"
+
 	# Check if dynv.cpp changed before rebuilding
 	if should_rebuild_dynv; then
 		echo "- Building dynamic virtual memory..."
@@ -119,7 +147,7 @@ main() {
 	7za a "$package_name" \
 		META-INF fmiop.sh customize.sh module.prop ./*service.sh \
 		uninstall.sh ps action.sh sed yq tar config.yaml \
-		system/bin/dynv "$fogimp_pkg"
+		system/bin/dynv "$fogimp_pkg" "fmiop-v${version}_${versionCode}-changelog.md"
 
 	if $INSTALL; then
 		check_root "You need ROOT to install this module" || su -c "magisk --install-module $package_name"
