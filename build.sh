@@ -76,11 +76,15 @@ should_rebuild_dynv() {
 	return 0 # Rebuild needed
 }
 
-# Generate Changelog from Git
+# Generate Changelog from Git and remove old ones
 generate_changelog() {
 	local version="$1"
 	local versionCode="$2"
 	local changelog_file="fmiop-v${version}_${versionCode}-changelog.md"
+
+	# Remove previous changelogs
+	rm -f fmiop-v*-changelog.md
+	echo "- Removed old changelogs"
 
 	echo "# Changelog for v${version} (Build ${versionCode})" >"$changelog_file"
 	echo "" >>"$changelog_file"
