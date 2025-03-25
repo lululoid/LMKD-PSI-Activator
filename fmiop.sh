@@ -167,16 +167,21 @@ loger_watcher() {
 				set -x
 
 				log_count=$(find "${log%.log}"* | wc -l)
-				new_log_file="$log.$log_count"
+
 				if [ $SINCE_REBOOT ]; then
-					cp "$log" "$new_log_file.boot"
+					cp "$log" "$log.boot"
 					SINCE_REBOOT=false
 				else
-					cp "$log" "$new_log_file"
+					for num in $(find $log.* | sed 's/[^0-9]//g' | sort -r); do
+						new_num=$((num + 1))
+						mv $log.$num $log.$new_num
+					done
+
+					cp "$log" "$log.1"
 				fi
 
-				echo "" >"$log"
-				loger "Rotated $log to $new_log_file (size: $log_size bytes)"
+				: >"$log"
+				loger "Rotated $log to $log.1"
 
 				# limit logs to only 3
 				while [ $log_count -ge 3 ]; do
@@ -184,7 +189,7 @@ loger_watcher() {
 					log_count=$((log_count - 1))
 
 					rm -rf "$oldest_log"
-					loger "Removed oldest log file: $oldest_log to keep only 3 logs"
+					loger "Removed: $oldest_log. $log_count left."
 				done
 
 				exec 3>&-
@@ -409,7 +414,7 @@ update_pressure_report() {
 			loger i "I don't like potato ($pressure_emoji $memory_pressure)"
 		else
 			pressure_emoji="🟥"
-			loger i "Call for ambulance ($pressure_emoji $memory_pressure)"
+			loger i "Call for ambulance (memory_pressure: $pressure_emoji $memory_pressure)"
 		fi
 	fi
 

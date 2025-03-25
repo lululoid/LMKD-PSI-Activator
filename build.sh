@@ -94,9 +94,9 @@ generate_changelog() {
 	last_version_commit=$(git log --grep="version=v" --pretty=format:"%H" -n 1)
 
 	if [[ -n "$last_version_commit" ]]; then
-		git log --pretty=format:"- %s (%an, %ad)" --date=short "$last_version_commit"..HEAD >>"$changelog_file"
+		git log --pretty=format:"- %s (%h)" --date=short "$last_version_commit"..HEAD >>"$changelog_file"
 	else
-		git log --pretty=format:"- %s (%an, %ad)" --date=short >>"$changelog_file"
+		git log --pretty=format:"- %s (%h)" --date=short >>"$changelog_file"
 	fi
 
 	echo "" >>"$changelog_file"

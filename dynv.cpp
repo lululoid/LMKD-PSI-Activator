@@ -446,7 +446,7 @@ void dyn_swap_service() {
     }
 
     if (new_swappiness != current_swappiness &&
-        new_swappiness > SWAPPINESS_MIN) {
+        new_swappiness >= SWAPPINESS_MIN) {
       if (abs(last_swappiness - new_swappiness) >= 10 ||
           new_swappiness == SWAPPINESS_MIN ||
           new_swappiness == SWAPPINESS_MAX) {
