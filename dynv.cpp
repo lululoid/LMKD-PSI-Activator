@@ -505,10 +505,6 @@ void dyn_swap_service() {
                 found_candidate = true;
                 ALOGD("%s is in candidates, usage(%dMB > %dMB).", swap.c_str(),
                       swp_usage.first, deactivation_threshold);
-              } else if (swap.find(SWAP_FILE) != string::npos) {
-                ALOGD("%s is in candidates, because it's swap file.",
-                      swap.c_str());
-                found_candidate = true;
               } else if (get_lscount(deactivation_threshold) > 1) {
                 ALOGI("Keeping low swap count to 1, adding %s to candidates.",
                       swap.c_str());
