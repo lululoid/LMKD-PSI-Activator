@@ -11,6 +11,7 @@
 #include <iostream>
 #include <map>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <sys/stat.h>
 #include <sys/swap.h> // For swapon(), swapoff()
@@ -410,13 +411,10 @@ void dyn_swap_service() {
 
   vector<string> available_swaps = get_available_swap();
   vector<string> active_swaps = get_active_swap();
-  vector<string> deactivation_candidates;
-  string swap_type = "zram";
-  string last_active_swap;
+  string swap_type = "zram", last_active_swap;
   int activation_threshold, deactivation_threshold;
-  int last_swappiness = read_swappiness();
-  int new_swappiness = last_swappiness;
-  bool found_candidate = false, unbounded = true, no_pressure = false;
+  int last_swappiness = read_swappiness(), new_swappiness = last_swappiness;
+  bool unbounded = true, no_pressure = false, scnd_log = true;
 
   while (running) {
     int current_swappiness = read_swappiness();
@@ -493,41 +491,31 @@ void dyn_swap_service() {
             ALOGE("Failed to activate swap: %s", next_swap.c_str());
           }
         } else {
-          for (const auto &swap : active_swaps) {
-            pair<int, int> swp_usage = get_swap_usage(swap);
-            bool is_in_candidates = find(deactivation_candidates.begin(),
-                                         deactivation_candidates.end(),
-                                         swap) != deactivation_candidates.end();
+          try {
+            string scnd_lst_swap = active_swaps.at(active_swaps.size() - 2);
+            int lst_scnd_act_threshold =
+                (scnd_lst_swap.find(SWAP_FILE) != string::npos)
+                    ? SWAP_ACTIVATION_THRESHOLD
+                    : ZRAM_ACTIVATION_THRESHOLD;
+            pair<int, int> sc_prev_swap_usg = get_swap_usage(scnd_lst_swap);
 
-            if (!is_in_candidates) {
-              if (swp_usage.first > deactivation_threshold) {
-                deactivation_candidates.push_back(swap);
-                found_candidate = true;
-                ALOGD("%s is in candidates, usage(%dMB > %dMB).", swap.c_str(),
-                      swp_usage.first, deactivation_threshold);
-              } else if (get_lscount(deactivation_threshold) > 1) {
-                ALOGI("Keeping low swap count to 1, adding %s to candidates.",
-                      swap.c_str());
-                found_candidate = true;
-              }
-
-              if (found_candidate) {
-                deactivation_candidates.push_back(swap);
-              }
-            } else if (is_in_candidates) {
-              if (swp_usage.first < deactivation_threshold) {
-                ALOGI("Turning off %s.", swap.c_str());
-                if (swapoff(swap.c_str()) == 0) {
-                  remove_element(swap, deactivation_candidates);
-                  remove_element(swap, active_swaps);
-                  available_swaps.push_back(swap);
-                  ALOGI("Swap: %s is turned off.", swap.c_str());
-                } else {
-                  ALOGE("Failed to deactivate swap: %s", swap.c_str());
-                }
+            if (sc_prev_swap_usg.second < lst_scnd_act_threshold &&
+                lst_swap_usage.first < deactivation_threshold) {
+              ALOGI("Turning off %s.", last_active_swap.c_str());
+              if (swapoff(last_active_swap.c_str()) == 0) {
+                remove_element(last_active_swap, active_swaps);
+                available_swaps.push_back(last_active_swap);
+                ALOGI("Swap: %s is turned off.", last_active_swap.c_str());
+              } else {
+                ALOGE("Failed to deactivate swap: %s",
+                      last_active_swap.c_str());
               }
             }
-            found_candidate = false;
+          } catch (const out_of_range &e) {
+            if (scnd_log) {
+              ALOGE("No second last swap.");
+              scnd_log = false;
+            }
           }
         }
       }

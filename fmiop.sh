@@ -404,14 +404,14 @@ update_pressure_report() {
 		last_memory_pressure=$memory_pressure
 		if [ "$memory_pressure" -gt 80 ]; then
 			pressure_emoji="⚪"
-			loger i "Sleek! It's ($pressure_emoji $memory_pressure), got nothing in RAM huh?"
+			loger i "Sleek! It's (memory_pressure: $pressure_emoji $memory_pressure), got nothing in RAM huh?"
 			loger i "Smooth as silk."
 		elif [ "$memory_pressure" -gt 60 ]; then
 			pressure_emoji="🟩"
-			loger i "What expected, just normal usage ($pressure_emoji $memory_pressure)"
+			loger i "What expected, just normal usage (memory_pressure: $pressure_emoji $memory_pressure)"
 		elif [ "$memory_pressure" -gt 40 ]; then
 			pressure_emoji="🟨"
-			loger i "I don't like potato ($pressure_emoji $memory_pressure)"
+			loger i "I don't like potato (memory_pressure: $pressure_emoji $memory_pressure)"
 		else
 			pressure_emoji="🟥"
 			loger i "Call for ambulance (memory_pressure: $pressure_emoji $memory_pressure)"
@@ -577,7 +577,7 @@ archive_service() {
 			)
 
 			[ -z "$tar_output" ] &&
-				loger "Created archive $archive_file from $source_dirs with output: $tar_output"
+				loger "Archived -> $archive_file: $tar_output"
 
 			# Check and limit the number of archives to max_archives (5)
 			local archive_count
@@ -587,7 +587,7 @@ archive_service() {
 				local excess=$((archive_count - max_archives))
 				ls -t "$archive_dir/fmiop_archive_"*.tar.gz | tail -n "$excess" | while read -r old_archive; do
 					rm -f "$old_archive"
-					loger "Removed oldest archive $old_archive to maintain limit of $max_archives"
+					loger "Removed: $old_archive, limit: $max_archives archives."
 				done
 			fi
 
