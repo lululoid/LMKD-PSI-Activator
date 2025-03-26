@@ -604,7 +604,20 @@ make_swap() {
 	mkswap -L fmiop_swap "$2" >/dev/null
 	chmod 0600 "$2"
 	uprint "  › Swap: $2, size: $(($1 / 1024))MB is made"
-	return 0
+}
+
+start_services() {
+	pressure_reporter_service
+	$MODPATH/system/bin/dynv &
+	loger "Started dyn_swap_service with PID $!"
+}
+
+kill_services() {
+	services_target="dyn_swap_service"
+	for id in $services_target; do
+		pid=$(read_pid $id)
+		kill -9 $pid && loger "Killed $id with PID $pid"
+	done
 }
 
 setup_swap() {
@@ -641,7 +654,7 @@ setup_swap() {
 			fi
 
 			for num in $(seq $swap_count); do
-				if make_swap "$quarter_gb" "$SWAP_FILENAME.$num"; then
+				if ! make_swap "$quarter_gb" "$SWAP_FILENAME.$num"; then
 					uprint "Error: Failed to create swap file $SWAP_FILENAME.$num"
 					return 1
 				fi

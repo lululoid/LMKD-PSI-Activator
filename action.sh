@@ -55,8 +55,12 @@ for swap in "$SWAP_FILENAME"*; do
 	if [ ! -f $swap ]; then
 		uprint "⟩ Remaking SWAP option"
 		setup_swap
+		kill_services
+		start_services
 	else
 		remove_previous_swap
+		kill_services
+		start_services
 	fi
 	break
 done
