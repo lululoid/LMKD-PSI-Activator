@@ -485,38 +485,36 @@ archive_service() {
 	loger "Starting archive service for $source_dirs"
 
 	# Background loop to archive files
-	(
-		while true; do
-			# Generate timestamp for unique archive name
-			timestamp=$(date +%Y%m%d_%H%M%S)
-			archive_file="$archive_dir/fmiop_archive_$timestamp.tar.gz"
+	while true; do
+		# Generate timestamp for unique archive name
+		timestamp=$(date +%Y%m%d_%H%M%S)
+		archive_file="$archive_dir/fmiop_archive_$timestamp.tar.gz"
 
-			# Archive files from both directories
-			tar_output=$(
-				tar -czf "$archive_file" \
-					-C /data/adb/fmiop . \
-					-C /sdcard/Android/fmiop ./config.yaml
-			)
+		# Archive files from both directories
+		tar_output=$(
+			tar -czf "$archive_file" \
+				-C /data/adb/fmiop . \
+				-C /sdcard/Android/fmiop ./config.yaml
+		)
 
-			[ -z "$tar_output" ] &&
-				loger "Archived -> $archive_file: $tar_output"
+		[ -z "$tar_output" ] &&
+			loger "Archived -> $archive_file: $tar_output"
 
-			# Check and limit the number of archives to max_archives (5)
-			local archive_count
-			archive_count=$(find "$archive_dir/fmiop_archive_"*.tar.gz 2>/dev/null | wc -l)
-			if [ "$archive_count" -gt "$max_archives" ]; then
-				# Remove the oldest archives until only 5 remain
-				local excess=$((archive_count - max_archives))
-				ls -t "$archive_dir/fmiop_archive_"*.tar.gz | tail -n "$excess" | while read -r old_archive; do
-					rm -f "$old_archive"
-					loger "Removed: $old_archive, limit: $max_archives archives."
-				done
-			fi
+		# Check and limit the number of archives to max_archives (5)
+		local archive_count
+		archive_count=$(find "$archive_dir/fmiop_archive_"*.tar.gz 2>/dev/null | wc -l)
+		if [ "$archive_count" -gt "$max_archives" ]; then
+			# Remove the oldest archives until only 5 remain
+			local excess=$((archive_count - max_archives))
+			ls -t "$archive_dir/fmiop_archive_"*.tar.gz | tail -n "$excess" | while read -r old_archive; do
+				rm -f "$old_archive"
+				loger "Removed: $old_archive, limit: $max_archives archives."
+			done
+		fi
 
-			# Wait 5 minutes
-			sleep "$interval"
-		done
-	) &
+		# Wait 5 minutes
+		sleep "$interval"
+	done &
 
 	# Save PID of the background service
 	local pid=$!
@@ -627,31 +625,25 @@ setup_swap() {
 	free_space=$(df /data | sed -n '2p' | sed 's/[^0-9 ]*//g' | sed ':a;N;$!ba;s/\n/ /g' | awk '{print $4}')
 
 	if ! echo "$free_space" | grep -qE '^[0-9]+$' || [ -z "$free_space" ]; then
-		uprint "Error: Failed to retrieve valid free space information."
-		return 1
+		uprint "⟩ Error: Failed to retrieve valid free space information."
+		uprint "⟩ Skipping free space check, make sure you have enough space available."
+		fuck_free_space=true
 	fi
 
 	# Get the list of available swap files
 	available_swaps=$(find $SWAP_FILENAME*)
-	if ! find $SWAP_FILENAME* | sort >/dev/null; then
-		uprint "Error: Failed to find swap files."
-		return 1
-	fi
 
 	if [ -z "$available_swaps" ]; then
 		# No existing swap files, need to create swap
 		setup_swap_size
 
-		if [ "$free_space" -ge "$swap_size" ] && [ "$swap_size" -gt 0 ]; then
-			uprint "
+		if [ "$free_space" -ge "$swap_size" ] && [ "$swap_size" -gt 0 ] || [ $fuck_free_space ]; then
+			[ ! $fuck_free_space ] &&
+				uprint "
 ⟩ Starting making SWAP. Please wait a moment...
   $((free_space / 1024))MB available. $((swap_size / 1024))MB needed"
 
 			swap_count=$((swap_size / quarter_gb))
-			if [ $swap_count -le 0 ]; then
-				uprint "Error: Swap count is calculated to be 0. Check swap size."
-				return 1
-			fi
 
 			for num in $(seq $swap_count); do
 				if ! make_swap "$quarter_gb" "$SWAP_FILENAME.$num"; then
