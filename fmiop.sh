@@ -27,10 +27,11 @@ export TAG LOGFILE LOG_FOLDER
 
 ### Aliases ###
 alias resetprop="resetprop -v" # Verbose property reset (requires root)
-alias sed='$MODPATH/sed'       # Custom sed binary (MODPATH must be set)
-alias yq='$MODPATH/yq'         # Custom yq binary for YAML parsing
-alias tar='$MODPATH/tar'
-alias ps='$MODPATH/ps'
+alias sed='$MODPATH/tools/sed' # Custom sed binary (MODPATH must be set)
+alias yq='$MODPATH/tools/yq'   # Custom yq binary for YAML parsing
+alias tar='$MODPATH/tools/tar'
+alias ps='$MODPATH/tools/ps'
+alias df='$MODPATH/tools/df'
 
 ### Utility Functions ###
 
@@ -261,14 +262,6 @@ EOF
 	done
 }
 
-# notif - Sends a notification to the user
-# Usage: notif "message"
-notif() {
-	local body="$1"
-	loger "Sending notification: $body"
-	su -lp 2000 -c "cmd notification post -S bigtext -t 'fmiop' 'Tag' '$body'"
-}
-
 # turnoff_zram - Disables a ZRAM partition
 # Usage: turnoff_zram <zram_device>
 turnoff_zram() {
@@ -343,37 +336,11 @@ get_memory_pressure() {
 	echo "$memory_pressure"
 }
 
-# is_device_sleeping - Checks if the device is in sleep mode
-is_device_sleeping() {
-	dumpsys power | grep 'mWakefulness=' | grep 'Asleep' >/dev/null && loger "Device is sleeping"
-}
-
-# is_device_dozing - Checks if the device is in doze mode
-is_device_dozing() {
-	dumpsys deviceidle get deep | grep IDLE >/dev/null && loger "Device is entering doze mode"
-}
-
 # apply_lmkd_props - Applies LMKD properties from files
 apply_lmkd_props() {
 	loger "Applying LMKD properties from $MODPATH/system.prop and $FOGIMP_PROPS"
 	resetprop -f "$MODPATH/system.prop" 2>/dev/null
 	resetprop -f "$FOGIMP_PROPS" 2>/dev/null
-}
-
-# adjust_minfree_pairs_by_percentage - Adjusts minfree pairs by a percentage
-# Usage: adjust_minfree_pairs_by_percentage <percentage> <input_string>
-adjust_minfree_pairs_by_percentage() {
-	percentage="$1" input="$2"
-	loger "Adjusting minfree pairs in '$input' by $percentage%"
-	echo "$input" | awk -v perc="$percentage" '{
-        n = split($0, pairs, ",");
-        for (i = 1; i <= n; i++) {
-            split(pairs[i], kv, ":");
-            kv[1] = kv[1] * (1 + perc / 100);
-            printf "%d:%s", kv[1], kv[2];
-            if (i < n) printf ",";
-        }
-    }'
 }
 
 # turnon_zram - Enables a ZRAM partition for swapping
@@ -400,7 +367,7 @@ update_pressure_report() {
 
 	# Assign emoji based on memory pressure
 	if [ $memory_pressure -ge $((last_memory_pressure + 5)) ] ||
-		[ $memory_pressure -le $((last_memory_pressure - 5)) ]; then
+		[ $memory_pressure -le $((last_memory_pressure - 5)) ] && [ $memory_pressure != $last_memory_pressure ]; then
 		last_memory_pressure=$memory_pressure
 		if [ "$memory_pressure" -gt 80 ]; then
 			pressure_emoji="⚪"
@@ -479,51 +446,6 @@ read_pressure() {
             if (a[1] == k) { printf "%s", a[2]; exit }
         }
     }' "$file"
-}
-
-# fmiop - Main function to manage LMKD properties and pressure reporting
-fmiop() {
-	local new_pid zram_block memory_pressure props
-	set +x
-	exec 3>&-
-	loger "Starting fmiop memory optimization"
-
-	[ -f "$FOGIMP_PROPS" ] && while IFS='=' read -r key value; do
-		[ -z "$key" ] || [ -z "$value" ] || [ "${key#'#'}" != "$key" ] && continue
-		props="$props $key"
-		key=$(echo "$key" | tr '.' '_')
-		eval "$key=\"$value\""
-		loger "Loaded property $key=$value from $FOGIMP_PROPS"
-	done <"$FOGIMP_PROPS"
-
-	while true; do
-		rm_prop sys.lmk.minfree_levels && {
-			exec 3>&1
-			set -x
-			relmkd
-			set +x
-			exec 3>&-
-		}
-
-		[ -f "$FOGIMP_PROPS" ] && for prop in $props; do
-			if ! resetprop "$prop" >/dev/null 2>&1; then
-				exec 3>&1
-				set -x
-				var=$(echo "$prop" | tr '.' '_')
-				eval value="\$$var"
-				resetprop "$prop" "$value" && loger "Reapplied $prop=$value"
-				relmkd
-				set +x
-				exec 3>&-
-			fi
-		done
-
-		update_pressure_report
-		sleep 2
-	done &
-	new_pid=$!
-	save_pid "fmiop.pid" "$new_pid"
-	loger "fmiop running with PID $new_pid"
 }
 
 pressure_reporter_service() {
@@ -610,11 +532,16 @@ get_key_event() {
 	if [ -n "$capture_pid" ] && ! kill -0 $capture_pid; then
 		unset capture_pid
 	elif [ -z "$capture_pid" ]; then
+		: >"$event_file"
 		getevent -lq >$event_file &
 		capture_pid=$!
 	fi
 
 	result=$(tail -n2 "$event_file" | grep "$event_type")
+	until tail -n2 "$event_file" | awk '/UP/ { print $4 }' >/dev/null; do
+		break
+	done
+
 	[ -n "$result" ] && sleep 0.25 && return 0 || return 1
 }
 
@@ -679,27 +606,66 @@ make_swap() {
 	uprint "  › Swap: $2, size: $(($1 / 1024))MB is made"
 }
 
+start_services() {
+	pressure_reporter_service
+	$MODPATH/system/bin/dynv &
+	loger "Started dyn_swap_service with PID $!"
+}
+
+kill_services() {
+	services_target="dyn_swap_service"
+	for id in $services_target; do
+		pid=$(read_pid $id)
+		kill -9 $pid && loger "Killed $id with PID $pid"
+	done
+}
+
 setup_swap() {
 	local free_space swap_size available_swaps
+
+	# Get the free space in /data
 	free_space=$(df /data | sed -n '2p' | sed 's/[^0-9 ]*//g' | sed ':a;N;$!ba;s/\n/ /g' | awk '{print $4}')
-	available_swaps=$(find $SWAP_FILENAME* 2>/dev/null | sort)
+
+	if ! echo "$free_space" | grep -qE '^[0-9]+$' || [ -z "$free_space" ]; then
+		uprint "Error: Failed to retrieve valid free space information."
+		return 1
+	fi
+
+	# Get the list of available swap files
+	available_swaps=$(find $SWAP_FILENAME*)
+	if ! find $SWAP_FILENAME* | sort >/dev/null; then
+		uprint "Error: Failed to find swap files."
+		return 1
+	fi
 
 	if [ -z "$available_swaps" ]; then
+		# No existing swap files, need to create swap
 		setup_swap_size
+
 		if [ "$free_space" -ge "$swap_size" ] && [ "$swap_size" -gt 0 ]; then
 			uprint "
 ⟩ Starting making SWAP. Please wait a moment...
   $((free_space / 1024))MB available. $((swap_size / 1024))MB needed"
+
 			swap_count=$((swap_size / quarter_gb))
+			if [ $swap_count -le 0 ]; then
+				uprint "Error: Swap count is calculated to be 0. Check swap size."
+				return 1
+			fi
+
 			for num in $(seq $swap_count); do
-				make_swap "$quarter_gb" "$SWAP_FILENAME.$num"
+				if ! make_swap "$quarter_gb" "$SWAP_FILENAME.$num"; then
+					uprint "Error: Failed to create swap file $SWAP_FILENAME.$num"
+					return 1
+				fi
 			done
 			uprint "  › SWAP creation is done."
 		elif [ $swap_size -eq 0 ]; then
 			:
 		else
 			uprint "
-⟩ Storage full. Please free up your storage"
+⟩ Storage full. Please free up your storage."
+			return 1
 		fi
 	else
 		uprint "

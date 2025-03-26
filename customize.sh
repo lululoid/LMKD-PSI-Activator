@@ -48,14 +48,10 @@ fix_mistakes() {
 
 set_permissions() {
 	set_perm_recursive "$MODPATH" 0 0 0755 0644
-	set_perm_recursive "$MODPATH/sed" 0 2000 0755 0755
-	set_perm_recursive "$MODPATH/yq" 0 2000 0755 0755
-	set_perm_recursive "$MODPATH/ps" 0 2000 0755 0755
-	set_perm_recursive "$MODPATH/tar" 0 2000 0755 0755
+	set_perm_recursive "$MODPATH/tools" 0 2000 0755 0755
 	set_perm_recursive "$MODPATH/fmiop.sh" 0 2000 0755 0755
 	set_perm_recursive "$MODPATH/fmiop_service.sh" 0 2000 0755 0755
 	set_perm_recursive "$MODPATH/log_service.sh" 0 2000 0755 0755
-	set_perm_recursive "$MODPATH/sqlite3" 0 2000 0755 0755
 	set_perm_recursive "$MODPATH/system/bin/dynv" 0 2000 0755 0755
 }
 
@@ -183,9 +179,11 @@ fi
 
 cp $MODPATH/module.prop $LOG_FOLDER
 
-if [ -e "/data/adb/modules/$TAG" ]; then
-	cp $MODPATH/action.sh /data/adb/modules/$TAG
-	cp $MODPATH/fmiop.sh /data/adb/modules/$TAG
+if [ -e "$NVBASE/modules/$TAG" ]; then
+	MOD_DIR=$NVBASE/modules/$TAG
+	cp $MODPATH/action.sh $MOD_DIR
+	cp $MODPATH/fmiop.sh $MOD_DIR
+	$BIN/cp -rf $MODPATH/tools $MOD_DIR
 fi
 
 setup_swap

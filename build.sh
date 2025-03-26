@@ -150,8 +150,8 @@ main() {
 	echo "- Creating zip package: $package_name"
 	7za a "$package_name" \
 		META-INF fmiop.sh customize.sh module.prop ./*service.sh \
-		uninstall.sh ps action.sh sed yq tar config.yaml \
-		system/bin/dynv "$fogimp_pkg" "fmiop-v${version}_${versionCode}-changelog.md"
+		uninstall.sh action.sh config.yaml \
+		system/bin tools "$fogimp_pkg" "fmiop-v${version}_${versionCode}-changelog.md"
 
 	if $INSTALL; then
 		check_root "You need ROOT to install this module" || su -c "magisk --install-module $package_name"

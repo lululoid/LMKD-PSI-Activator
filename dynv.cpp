@@ -462,7 +462,7 @@ void dyn_swap_service() {
           active_swaps.push_back(first_swap);
 
           if ((swapon(first_swap.c_str(), 0)) == 0) {
-            ALOGE("SWAP: %s turned on.", first_swap.c_str());
+            ALOGI("SWAP: %s turned on.", first_swap.c_str());
             available_swaps.pop_back();
           } else {
             ALOGE("Failed to activate swap: %s", first_swap.c_str());
