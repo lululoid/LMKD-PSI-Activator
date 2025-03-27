@@ -384,7 +384,8 @@ int get_memory_pressure() {
 }
 
 // Function to perform swapoff on a single device
-void swapoff_th(const string &device, vector<string> &available_swaps) {
+void swapoff_th(const string &device, vector<string> &available_swaps,
+                vector<string> &active_swaps) {
   ALOGI("[THREAD] Swapoff: %s", device.c_str());
 
   if (swapoff(device.c_str()) == 0) {
@@ -392,6 +393,7 @@ void swapoff_th(const string &device, vector<string> &available_swaps) {
     available_swaps.push_back(device);
   } else {
     ALOGE("Failed to deactivate swap: %s", device.c_str());
+    active_swaps.push_back(device);
   }
 }
 
@@ -518,7 +520,8 @@ void dyn_swap_service() {
             if (sc_prev_swap_usg.second < lst_scnd_act_threshold &&
                 lst_swap_usage.first < deactivation_threshold) {
               swapoff_thread.emplace_back(swapoff_th, last_active_swap,
-                                          ref(available_swaps));
+                                          ref(available_swaps),
+                                          ref(active_swaps));
               remove_element(last_active_swap, active_swaps);
             }
           } catch (const out_of_range &e) {

@@ -16,11 +16,19 @@ def init_csv():
             writer.writerow(
                 [
                     "Timestamp",
-                    "Stage",
                     "CPU_Usage(%)",
                     "RAM_Usage(%)",
                     "Temp(°C)",
                     "Battery(%)",
+                    "Pressure_CPU_avg10",
+                    "Pressure_CPU_avg60",
+                    "Pressure_CPU_avg300",
+                    "Pressure_IO_avg10",
+                    "Pressure_IO_avg60",
+                    "Pressure_IO_avg300",
+                    "Pressure_Memory_avg10",
+                    "Pressure_Memory_avg60",
+                    "Pressure_Memory_avg300",
                 ]
             )
 
@@ -66,7 +74,7 @@ def read_ram_usage():
 
 def read_cpu_temperature():
     """Reads CPU temperature (if available)."""
-    thermal_path = "/sys/class/thermal/thermal_zone0/temp"
+    thermal_path = "/sys/class/thermal/thermal_zone10/temp"
     if os.path.exists(thermal_path):
         with open(thermal_path, "r") as f:
             temp = int(f.read().strip()) / 1000  # Convert to Celsius
@@ -143,6 +151,7 @@ def log_performance():
     """Logs system performance and pressure metrics to CSV."""
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
     cpu_before = read_cpu_usage()
+    time.sleep(1)
     cpu_now = read_cpu_usage()
     cpu_usage = calculate_cpu_load(cpu_before, cpu_now) if cpu_before else "N/A"
     ram_usage = read_ram_usage()
@@ -172,7 +181,6 @@ def log_performance():
         if file.tell() == 0:
             headers = [
                 "Timestamp",
-                "Stage",
                 "CPU Usage",
                 "RAM Usage",
                 "CPU Temp",
