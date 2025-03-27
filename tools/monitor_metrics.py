@@ -1,9 +1,7 @@
 import os
 import time
 import csv
-import os
 import subprocess
-import time
 
 CSV_FILE = "performance_data.csv"
 PRESSURE_PATH = "/proc/pressure/"
@@ -36,12 +34,15 @@ def read_cpu_usage():
 
 
 def calculate_cpu_load(before, after):
-    """Calculates CPU load percentage."""
+    """Calculates CPU load percentage with error handling."""
     idle_before, total_before = before[3], sum(before)
     idle_after, total_after = after[3], sum(after)
 
     idle_diff = idle_after - idle_before
     total_diff = total_after - total_before
+
+    if total_diff == 0:  # Avoid division by zero
+        return 0.0
 
     cpu_usage = 100 * (1 - (idle_diff / total_diff))
     return round(cpu_usage, 2)
@@ -96,9 +97,21 @@ def parse_pressure_file(file_path):
     return data
 
 
+def read_all_pressure():
+    """Reads all pressure files in /proc/pressure/ and returns structured data."""
+    results = {}
+
+    for filename in os.listdir(PRESSURE_PATH):
+        file_path = os.path.join(PRESSURE_PATH, filename)
+        if os.path.isfile(file_path):
+            results[filename] = parse_pressure_file(file_path)
+
+    return results
+
+
 def send_notification(message):
     """Sends a notification using the 'su' command on Android."""
-    command = f"su -lp 2000 -c \"command cmd notification post -S bigtext -t 'zcharge' 'zcharge' '{message}'\""
+    command = f"su -lp 2000 -c \"command cmd notification post -S bigtext -t 'fmiop monitor' 'fmiop monitor' '{message}'\""
 
     result = subprocess.run(command, shell=True, capture_output=True)
     if result.returncode != 0:
@@ -129,6 +142,7 @@ def read_pressure_data():
 def log_performance():
     """Logs system performance and pressure metrics to CSV."""
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    cpu_before = read_cpu_usage()
     cpu_now = read_cpu_usage()
     cpu_usage = calculate_cpu_load(cpu_before, cpu_now) if cpu_before else "N/A"
     ram_usage = read_ram_usage()
@@ -188,4 +202,15 @@ init_csv()
 print("Measuring performance...")
 
 while True:
+    pressure_data = read_all_pressure()
+
+    # 🔥 Check if any value is high and send a notification
+    for category, data in pressure_data.items():
+        for level, metrics in data.items():
+            if metrics["avg10"] > 50:  # Adjust threshold as needed
+                msg = f"{category.upper()} {level} pressure high! avg10={metrics['avg10']}"
+                send_notification(msg)
+
     log_performance()
+
+    time.sleep(CHECK_INTERVAL)  # Wait before checking again
