@@ -34,7 +34,7 @@ namespace fs = std::filesystem;
 #define ALOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define ALOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 
-extern void save_pid(const std::string &filename, pid_t pid);
+extern void save_pid(const string &filename, pid_t pid);
 extern void dyn_swap_service();
 extern void fmiop();
 
@@ -383,6 +383,18 @@ int get_memory_pressure() {
   return pressure;
 }
 
+// Function to perform swapoff on a single device
+void swapoff_th(const string &device, vector<string> &available_swaps) {
+  ALOGI("[THREAD] Swapoff: %s", device.c_str());
+
+  if (swapoff(device.c_str()) == 0) {
+    ALOGI("Swap: %s is turned off.", device.c_str());
+    available_swaps.push_back(device);
+  } else {
+    ALOGE("Failed to deactivate swap: %s", device.c_str());
+  }
+}
+
 /**
  * Dynamic swappiness adjustment service.
  */
@@ -411,13 +423,17 @@ void dyn_swap_service() {
 
   vector<string> available_swaps = get_available_swap();
   vector<string> active_swaps = get_active_swap();
-  string swap_type = "zram", last_active_swap;
-  int activation_threshold, deactivation_threshold;
+  string swap_type = "zram";
+  string last_active_swap, scnd_lst_swap, next_swap, first_swap;
+  pair<int, int> lst_swap_usage, sc_prev_swap_usg;
+  int activation_threshold, deactivation_threshold, current_swappiness;
   int last_swappiness = read_swappiness(), new_swappiness = last_swappiness;
+  int lst_scnd_act_threshold;
   bool unbounded = true, no_pressure = false, scnd_log = true;
+  vector<thread> swapoff_thread;
 
   while (running) {
-    int current_swappiness = read_swappiness();
+    current_swappiness = read_swappiness();
     if (current_swappiness == -1) {
       ALOGE("Error reading swappiness");
       return;
@@ -458,7 +474,7 @@ void dyn_swap_service() {
       // If there's no swap turn on first swap
       if (active_swaps.empty()) {
         if (!available_swaps.empty()) {
-          string first_swap = available_swaps.back();
+          first_swap = available_swaps.back();
           active_swaps.push_back(first_swap);
 
           if ((swapon(first_swap.c_str(), 0)) == 0) {
@@ -470,7 +486,7 @@ void dyn_swap_service() {
         }
       } else {
         last_active_swap = active_swaps.back();
-        pair<int, int> lst_swap_usage = get_swap_usage(last_active_swap);
+        lst_swap_usage = get_swap_usage(last_active_swap);
         activation_threshold =
             (last_active_swap.find(SWAP_FILE) != string::npos)
                 ? SWAP_ACTIVATION_THRESHOLD
@@ -481,7 +497,7 @@ void dyn_swap_service() {
                 : ZRAM_DEACTIVATION_THRESHOLD;
 
         if (lst_swap_usage.second > activation_threshold) {
-          string next_swap = available_swaps.back();
+          next_swap = available_swaps.back();
 
           if ((swapon(next_swap.c_str(), 0)) == 0) {
             ALOGE("SWAP: %s turned on", next_swap.c_str());
@@ -492,24 +508,18 @@ void dyn_swap_service() {
           }
         } else {
           try {
-            string scnd_lst_swap = active_swaps.at(active_swaps.size() - 2);
-            int lst_scnd_act_threshold =
+            scnd_lst_swap = active_swaps.at(active_swaps.size() - 2);
+            lst_scnd_act_threshold =
                 (scnd_lst_swap.find(SWAP_FILE) != string::npos)
                     ? SWAP_ACTIVATION_THRESHOLD
                     : ZRAM_ACTIVATION_THRESHOLD;
-            pair<int, int> sc_prev_swap_usg = get_swap_usage(scnd_lst_swap);
+            sc_prev_swap_usg = get_swap_usage(scnd_lst_swap);
 
             if (sc_prev_swap_usg.second < lst_scnd_act_threshold &&
                 lst_swap_usage.first < deactivation_threshold) {
-              ALOGI("Turning off %s.", last_active_swap.c_str());
-              if (swapoff(last_active_swap.c_str()) == 0) {
-                remove_element(last_active_swap, active_swaps);
-                available_swaps.push_back(last_active_swap);
-                ALOGI("Swap: %s is turned off.", last_active_swap.c_str());
-              } else {
-                ALOGE("Failed to deactivate swap: %s",
-                      last_active_swap.c_str());
-              }
+              swapoff_thread.emplace_back(swapoff_th, last_active_swap,
+                                          ref(available_swaps));
+              remove_element(last_active_swap, active_swaps);
             }
           } catch (const out_of_range &e) {
             if (scnd_log) {
@@ -532,8 +542,8 @@ void relmkd() {
   ALOGD("LMKD reinitialized");
 }
 
-bool prop_exists(const std::string &prop) {
-  std::string command = "resetprop -v " + prop + " 2>/dev/null";
+bool prop_exists(const string &prop) {
+  string command = "resetprop -v " + prop + " 2>/dev/null";
   FILE *pipe = popen(command.c_str(), "r");
   if (!pipe) {
     ALOGW("Failed to check property: %s", prop.c_str());
@@ -550,10 +560,10 @@ bool prop_exists(const std::string &prop) {
   return exists;
 }
 
-void rm_prop(const std::vector<std::string> &props) {
+void rm_prop(const vector<string> &props) {
   for (const auto &prop : props) {
     if (prop_exists(prop)) {
-      std::string command = "resetprop -d " + prop;
+      string command = "resetprop -d " + prop;
       int result = system(command.c_str());
 
       if (result == 0) {
