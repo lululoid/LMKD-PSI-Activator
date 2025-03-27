@@ -97,12 +97,21 @@ apply_touch_issue_workaround() {
 
 EOF
 
+	exec 3>&-
+	set +x
+
 	while true; do
 		if get_key_event 'KEY_VOLUMEUP *DOWN'; then
+			exec 3>&1
+			set -x
+
 			echo "  › Installing fogimp module 🍹
 "
 			magisk --install-module $MODPATH/packages/fogim*
 			echo ""
+
+			exec 3>&-
+			set +x
 			break
 		elif get_key_event 'KEY_VOLUMEDOWN *DOWN'; then
 			break

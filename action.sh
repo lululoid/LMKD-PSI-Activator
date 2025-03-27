@@ -25,10 +25,15 @@ remove_previous_swap() {
   Press VOLUME + to use REMOVE existing SWAP
   Press VOLUME - to cancel
   "
+	exec 3>&-
+	set +x
 
 	if [ -n "$SWAP_FILENAME" ]; then
 		while true; do
 			if get_key_event 'KEY_VOLUMEUP *DOWN'; then
+				exec 3>&1
+				set -x
+
 				available_swaps=$(find $SWAP_FILENAME* 2>/dev/null | sort)
 
 				for swap in $available_swaps; do
@@ -38,6 +43,9 @@ remove_previous_swap() {
 
 				uprint "
 ⟩ Press action again to remake SWAP."
+
+				exec 3>&-
+				set +x
 				break
 			elif get_key_event 'KEY_VOLUMEDOWN *DOWN'; then
 				uprint "  › Action cancelled."
@@ -51,16 +59,19 @@ remove_previous_swap() {
 	kill -9 $capture_pid
 }
 
-for swap in "$SWAP_FILENAME"*; do
-	if [ ! -f $swap ]; then
-		uprint "⟩ Remaking SWAP option"
-		setup_swap
-		kill_services
-		start_services
-	else
-		remove_previous_swap
-		kill_services
-		start_services
-	fi
-	break
-done
+restart_dynv() {
+	kill_dynv
+	$MODPATH/system/bin/dynv &
+	loger "Started dyn_swap_service with PID $!"
+
+}
+
+available_swaps=$(find $SWAP_FILENAME*)
+if [ -z "$available_swaps" ]; then
+	uprint "⟩ Remaking SWAP option"
+	setup_swap
+	restart_dynv
+else
+	remove_previous_swap
+	restart_dynv
+fi

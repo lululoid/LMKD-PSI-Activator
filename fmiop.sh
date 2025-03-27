@@ -26,9 +26,9 @@ CONFIG_FILE="$FMIOP_DIR/config.yaml" # YAML config file for thresholds and setti
 export TAG LOGFILE LOG_FOLDER
 
 ### Aliases ###
-alias resetprop="resetprop -v" # Verbose property reset (requires root)
+alias resetprop="resetprop -v"
 alias sed='$MODPATH/tools/sed' # Custom sed binary (MODPATH must be set)
-alias yq='$MODPATH/tools/yq'   # Custom yq binary for YAML parsing
+alias yq='$MODPATH/tools/yq'
 alias tar='$MODPATH/tools/tar'
 alias ps='$MODPATH/tools/ps'
 alias df='$MODPATH/tools/df'
@@ -154,10 +154,10 @@ loger_watcher() {
 	logs="$1"
 	ten_mb=10485760
 
-	# exec 3>&-
-	# set +x
-
 	loger "Starting log watcher for files: $logs"
+
+	exec 3>&-
+	set +x
 
 	while true; do
 		for log in $logs; do
@@ -253,12 +253,14 @@ approps() {
 		cat <<EOF
   › $prop 
 EOF
-		{
-			[ "$(getprop "$prop")" = "${value//=/ }" ] &&
-				uprint "  » $value
+		if [ "$(getprop "$prop")" = "${value//=/ }" ]; then
+			uprint "  » $value
 "
-		} || uprint "  ! Failed
+		else
+			uprint "  ! Failed
 "
+			loger e "Failed to apply $prop=$value"
+		fi
 	done
 }
 
@@ -320,10 +322,13 @@ resize_zram() {
 	for _ in $(seq 5); do
 		if mkswap "$zram_block" 2>/dev/null; then
 			loger "Initialized swap on ZRAM$zram_id"
-			break
+			return 0
 		fi
 		sleep 1
 	done
+
+	loger e "Failed: resize zram to $size"
+	return 1
 }
 
 # get_memory_pressure - Calculates memory pressure as a percentage
@@ -399,55 +404,6 @@ update_pressure_report() {
 		-e "s/(Swap Status[^:]*: )[^.]+/\1$swap_status/" "$module_prop"
 }
 
-# save_pressures_to_vars - Stores pressure metrics from /proc/pressure into variables
-save_pressures_to_vars() {
-	loger "Saving pressure metrics to variables"
-
-	for level in full some; do
-		# Loop over each file in /proc/pressure
-		for file in /proc/pressure/*; do
-			# Remove the prefix (level and a following space) from each line in the file,
-			# and reset the positional parameters to the resulting key=value pairs.
-			set -- $(sed "s/^$level //" "$file")
-
-			# For each key=value pair, extract key and value
-			for pair in "$@"; do
-				key=${pair%%=*}
-				value=${pair#*=}
-
-				# Get the filename (without directory path) as the hardware identifier.
-				key=${pair%%=*} value=${pair#*=}
-				hw=$(basename "$file")
-				# Create a new variable with the desired prefix and assign it the value.
-				# For example, if hw is "memory", level is "full", key is "avg10" and value "3.41",
-				# this will execute: full_avg10="3.41" (prefixed with the hardware name, e.g., memory_full_avg10).
-				eval "${hw}_${level}_${key}=\"${value}\""
-				loger "Set ${hw}_${level}_${key}=$value"
-			done
-		done
-	done
-}
-
-# read_pressure - Reads a specific pressure metric from /proc/pressure
-# Usage: read_pressure <resource> <level> <key>
-read_pressure() {
-	resource="$1" level="$2" key="$3" file="/proc/pressure/$resource"
-
-	if [ ! -f "$file" ]; then
-		loger "Error: Pressure file $file not found"
-		echo "Error: $file not found" >&2
-		return 1
-	fi
-
-	awk -v lvl="$level" -v k="$key" '
-    $1 == lvl {
-        for (i = 2; i <= NF; i++) {
-            split($i, a, "=")
-            if (a[1] == k) { printf "%s", a[2]; exit }
-        }
-    }' "$file"
-}
-
 pressure_reporter_service() {
 	set +x
 	exec 3>&-
@@ -483,6 +439,8 @@ archive_service() {
 		return 1
 	}
 	loger "Starting archive service for $source_dirs"
+	exec 3>&-
+	set +x
 
 	# Background loop to archive files
 	while true; do
@@ -504,11 +462,17 @@ archive_service() {
 		local archive_count
 		archive_count=$(find "$archive_dir/fmiop_archive_"*.tar.gz 2>/dev/null | wc -l)
 		if [ "$archive_count" -gt "$max_archives" ]; then
+			exec 3>&1
+			set -x
+
 			# Remove the oldest archives until only 5 remain
 			local excess=$((archive_count - max_archives))
 			ls -t "$archive_dir/fmiop_archive_"*.tar.gz | tail -n "$excess" | while read -r old_archive; do
 				rm -f "$old_archive"
 				loger "Removed: $old_archive, limit: $max_archives archives."
+
+				exec 3>&-
+				set +x
 			done
 		fi
 
@@ -570,7 +534,6 @@ setup_swap_size() {
 	totalmem_gb=$(((totalmem / 1024 / 1024) + 1))
 	count=0
 	swap_in_gb=0
-	hundred_mb=$((one_gb / 10))
 	quarter_gb=$((one_gb / 4))
 	swap_size=0
 
@@ -608,6 +571,11 @@ start_services() {
 	pressure_reporter_service
 	$MODPATH/system/bin/dynv &
 	loger "Started dyn_swap_service with PID $!"
+}
+
+kill_dynv() {
+	pid=$(read_pid dyn_swap_service)
+	kill -9 $pid && loger "Killed $id with PID $pid"
 }
 
 kill_services() {
@@ -651,16 +619,19 @@ setup_swap() {
 					return 1
 				fi
 			done
+
 			uprint "  › SWAP creation is done."
+			return 0
 		elif [ $swap_size -eq 0 ]; then
 			:
 		else
 			uprint "
 ⟩ Storage full. Please free up your storage."
-			return 1
 		fi
 	else
 		uprint "
 ⟩ SWAP already exists."
 	fi
+
+	return 1
 }

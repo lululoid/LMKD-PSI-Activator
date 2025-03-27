@@ -23,14 +23,23 @@ last_checksum=$(get_config_checksum)
 
 # Monitoring loop
 monitor_config() {
+	exec 3>&-
+	set +x
+
 	while true; do
 		current_checksum=$(get_config_checksum)
 		if [ "$current_checksum" != "$last_checksum" ]; then
+			exec 3>&1
+			set -x
+
 			loger "Config file $CONFIG_FILE changed (checksum: $last_checksum -> $current_checksum)"
 			kill_services
 			loger "Killed service PIDs"
 			start_services
 			last_checksum="$current_checksum"
+
+			exec 3>&-
+			set +x
 		fi
 		sleep 5 # Check every 5 seconds
 	done &

@@ -12,12 +12,21 @@ done
 pkill -9 -f "logcat.*lmkd"
 lmkd_loger "$LOG_FOLDER/lmkd.log"
 
+exec 3>&-
+set +x
+
 while true; do
 	pid=$(pidof dynv)
 	if [ -n "$pid" ]; then
+		exec 3>&1
+		set -x
+
 		logcat -v time fmiop:V '*:S' >>"$LOG_FOLDER/dynv.log" 2>&1
 		new_pid=$!
 		save_pid "fmiop.dynamic_swappiness_logger.pid" "$new_pid"
+
+		exec 3>&-
+		set +x
 	else
 		echo "Waiting for dynv to start..." >>"$LOG_FOLDER/fmiop.log"
 		sleep 5
