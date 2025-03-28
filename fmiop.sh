@@ -377,7 +377,6 @@ update_pressure_report() {
 		if [ "$memory_pressure" -gt 80 ]; then
 			pressure_emoji="⚪"
 			loger i "Sleek! It's (memory_pressure: $pressure_emoji $memory_pressure), got nothing in RAM huh?"
-			loger i "Smooth as silk."
 		elif [ "$memory_pressure" -gt 60 ]; then
 			pressure_emoji="🟩"
 			loger i "What expected, just normal usage (memory_pressure: $pressure_emoji $memory_pressure)"

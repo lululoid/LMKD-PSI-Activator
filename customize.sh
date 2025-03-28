@@ -34,7 +34,7 @@ fix_mistakes() {
 	for file in "$LOG_FOLDER/"*.log; do
 		file_size=$(check_file_size $file)
 
-		if [ $file_size -ge $ten_mb ]; then
+		if [ $file_size -gt $ten_mb ]; then
 			ui_print "
 ⟩ $file size: $file_size is emptied."
 			echo "" >$file
@@ -185,8 +185,6 @@ set_permissions
 if ! [ -f $LOG_FOLDER/.redempted ]; then
 	fix_mistakes
 fi
-
-cp $MODPATH/module.prop $LOG_FOLDER
 
 if [ -e "$NVBASE/modules/$TAG" ]; then
 	MOD_DIR=$NVBASE/modules/$TAG

@@ -28,6 +28,8 @@ echo "
 # Calculate total memory and ZRAM size (65% of total memory)
 TOTALMEM=$("$BIN/free" | awk '/^Mem:/ {print $2}')
 CPU_CORES_COUNT=$(grep -c ^processor /proc/cpuinfo) # Count CPU cores
+TOTALMEM_GB=$(awk '/MemTotal/ {print int(($2 / 1024 / 1024) + 1)}' /proc/meminfo)
+ONE_GB=1073741824
 
 # Export variables for use in sourced scripts (e.g., fmiop_service.sh)
 export MODPATH BIN NVBASE LOG_ENABLED LOG_FOLDER LOG CPU_CORES_COUNT TOTALMEM SINCE_REBOOT
@@ -58,17 +60,26 @@ if [ $VIR_E = "false" ]; then
 	resize_zram "$TOTALMEM" "$zram_id"
 fi
 
+available_space=$TOTALMEM
 # Create and resize ZRAM partitions based on CPU core count
-[ $VIR_E = "true" ] && for _ in $(seq "$CPU_CORES_COUNT"); do
+[ $VIR_E = "true" ] && for _ in $(seq $TOTALMEM_GB); do
 	zram_id=$(add_zram)
 
 	# Handle devices which can't make a new zram
-	resize_zram "$((TOTALMEM / CPU_CORES_COUNT))" "$zram_id"
+	if [ $available_space -gt $ONE_GB ]; then
+		resize_zram "$ONE_GB" "$zram_id"
+		available_space=$((available_space - ONE_GB))
+	else
+		resize_zram "$available_space" "$zram_id"
+	fi
+
 	if [ -z "$zram_id" ]; then
 		remove_zram 0
 		add_zram
 		resize_zram "$TOTALMEM" 0 && break
 	fi
+
+	[ $TOTALMEM_GB -gt 20 ] && break
 done
 
 ### Start Services ###

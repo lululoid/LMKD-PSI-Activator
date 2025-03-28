@@ -502,7 +502,7 @@ void dyn_swap_service() {
           next_swap = available_swaps.back();
 
           if ((swapon(next_swap.c_str(), 0)) == 0) {
-            ALOGE("SWAP: %s turned on", next_swap.c_str());
+            ALOGI("SWAP: %s turned on", next_swap.c_str());
             active_swaps.push_back(next_swap);
             remove_element(next_swap, available_swaps);
           } else {

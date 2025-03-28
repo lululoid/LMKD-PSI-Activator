@@ -149,7 +149,7 @@ main() {
 
 	echo "- Creating zip package: $package_name"
 	7za a "$package_name" \
-		META-INF fmiop.sh customize.sh module.prop ./*service.sh \
+		META-INF fmiop.sh customize.sh module.prop "*service.sh" \
 		uninstall.sh action.sh config.yaml \
 		system/bin tools "$fogimp_pkg" "fmiop-v${version}_${versionCode}-changelog.md"
 
@@ -157,6 +157,18 @@ main() {
 		check_root "You need ROOT to install this module" || su -c "magisk --install-module $package_name"
 	else
 		echo "- Skipping installation. Package built at: $package_name"
+	fi
+
+	echo "- Removing old packages"
+	packages_count=$(find packages/fmiop-v* | wc -l)
+	packages_keep_count=10
+	if [ "$packages_count" -gt $packages_keep_count ]; then
+		rm_candidates_count=$((packages_count - packages_keep_count))
+		rm_candidates=$(find packages/fmiop-v* | sort | tail -n $rm_candidates_count)
+
+		for pkg in $rm_candidates; do
+			rm "$pkg" && echo "- $pkg"
+		done
 	fi
 }
 
