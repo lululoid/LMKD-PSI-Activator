@@ -468,8 +468,9 @@ void dyn_swap_service() {
           new_swappiness == SWAPPINESS_MAX) {
         ALOGI("Swappiness -> %d", new_swappiness);
         last_swappiness = new_swappiness;
+
+        write_swappiness(new_swappiness);
       }
-      write_swappiness(new_swappiness);
     }
 
     if (unbounded) {

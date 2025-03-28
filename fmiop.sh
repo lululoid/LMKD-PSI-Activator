@@ -578,7 +578,7 @@ kill_dynv() {
 }
 
 kill_services() {
-	services_target="dyn_swap_service"
+	services_target="dyn_swap_service pressure_reporter"
 	for id in $services_target; do
 		pid=$(read_pid $id)
 		kill -9 $pid && loger "Killed $id with PID $pid"
