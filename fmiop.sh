@@ -408,13 +408,7 @@ pressure_reporter_service() {
 	exec 3>&-
 
 	while true; do
-		exec 3>&1
-		set -x
-
 		update_pressure_report
-
-		set +x
-		exec 3>&-
 		sleep 1
 	done &
 	new_pid=$!
