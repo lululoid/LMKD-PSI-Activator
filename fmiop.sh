@@ -31,7 +31,6 @@ alias sed='$MODPATH/tools/sed' # Custom sed binary (MODPATH must be set)
 alias yq='$MODPATH/tools/yq'
 alias tar='$MODPATH/tools/tar'
 alias ps='$MODPATH/tools/ps'
-alias df='$MODPATH/tools/df'
 
 ### Utility Functions ###
 

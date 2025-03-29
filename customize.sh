@@ -90,7 +90,7 @@ apply_touch_issue_workaround() {
   reason. LMKD will thrash so much on your device 
   until your phone goes slow. This is simple work- 
   around to make your phone stay as smooth as 
-  possible.
+  possible. RECOMMENDED to apply.
 
   Press VOLUME + to apply workaround
   Press VOLUME - to skip
