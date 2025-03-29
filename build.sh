@@ -158,18 +158,6 @@ main() {
 	else
 		echo "- Skipping installation. Package built at: $package_name"
 	fi
-
-	echo "- Removing old packages"
-	packages_count=$(find packages/fmiop-v* | wc -l)
-	packages_keep_count=10
-	if [ "$packages_count" -gt $packages_keep_count ]; then
-		rm_candidates_count=$((packages_count - packages_keep_count))
-		rm_candidates=$(find packages/fmiop-v* | sort | tail -n $rm_candidates_count)
-
-		for pkg in $rm_candidates; do
-			rm "$pkg" && echo "- $pkg"
-		done
-	fi
 }
 
 # Run the script

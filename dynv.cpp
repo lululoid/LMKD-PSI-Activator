@@ -480,7 +480,7 @@ void dyn_swap_service() {
     }
 
     if (!available_swaps.first.empty()) {
-      current_avs = available_swaps.second;
+      current_avs = available_swaps.first;
     } else if (!available_swaps.second.empty()) {
       current_avs = available_swaps.second;
     }
