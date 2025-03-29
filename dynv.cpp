@@ -220,7 +220,7 @@ bool is_active(const string &device) {
   return false;
 }
 
-vector<string> get_available_swap() {
+pair<vector<string>, vector<string>> get_available_swap() {
   vector<string> swap_files, zram_devices;
   vector<string> dir_list = {SWAP_DIR, ZRAM_DIR};
 
@@ -286,7 +286,7 @@ vector<string> get_available_swap() {
     ALOGD("Available SWAP: %s", swap.c_str());
   }
 
-  return available_swaps;
+  return {zram_devices, swap_files};
 }
 
 vector<string> get_active_swap() {
@@ -384,13 +384,18 @@ int get_memory_pressure() {
 }
 
 // Function to perform swapoff on a single device
-void swapoff_th(const string &device, vector<string> &available_swaps,
+void swapoff_th(const string &device,
+                pair<vector<string>, vector<string>> &available_swaps,
                 vector<string> &active_swaps) {
   ALOGI("[THREAD] Swapoff: %s", device.c_str());
 
   if (swapoff(device.c_str()) == 0) {
     ALOGI("Swap: %s is turned off.", device.c_str());
-    available_swaps.push_back(device);
+    if (device.find("zram")) {
+      available_swaps.first.push_back(device);
+    } else {
+      available_swaps.second.push_back(device);
+    }
   } else {
     ALOGE("Failed to deactivate swap: %s", device.c_str());
     active_swaps.push_back(device);
@@ -423,8 +428,8 @@ void dyn_swap_service() {
   bool PRESSURE_BINDING =
       read_config(".virtual_memory.pressure_binding", false);
 
-  vector<string> available_swaps = get_available_swap();
   vector<string> active_swaps = get_active_swap();
+  pair<vector<string>, vector<string>> available_swaps = get_available_swap();
   string swap_type = "zram";
   string last_active_swap, scnd_lst_swap, next_swap, first_swap;
   pair<int, int> lst_swap_usage, sc_prev_swap_usg;
@@ -433,6 +438,7 @@ void dyn_swap_service() {
   int lst_scnd_act_threshold;
   bool unbounded = true, no_pressure = false, scnd_log = true;
   vector<thread> swapoff_thread;
+  vector<string> current_avs;
 
   while (running) {
     current_swappiness = read_swappiness();
@@ -473,16 +479,22 @@ void dyn_swap_service() {
       }
     }
 
+    if (!available_swaps.first.empty()) {
+      current_avs = available_swaps.second;
+    } else if (!available_swaps.second.empty()) {
+      current_avs = available_swaps.second;
+    }
+
     if (unbounded) {
       // If there's no swap turn on first swap
       if (active_swaps.empty()) {
-        if (!available_swaps.empty()) {
-          first_swap = available_swaps.back();
+        if (!current_avs.empty()) {
+          first_swap = current_avs.back();
           active_swaps.push_back(first_swap);
 
           if ((swapon(first_swap.c_str(), 0)) == 0) {
             ALOGI("SWAP: %s turned on.", first_swap.c_str());
-            available_swaps.pop_back();
+            current_avs.pop_back();
           } else {
             ALOGE("Failed to activate swap: %s", first_swap.c_str());
           }
@@ -500,12 +512,12 @@ void dyn_swap_service() {
                 : ZRAM_DEACTIVATION_THRESHOLD;
 
         if (lst_swap_usage.second > activation_threshold) {
-          next_swap = available_swaps.back();
+          next_swap = current_avs.back();
 
           if ((swapon(next_swap.c_str(), 0)) == 0) {
             ALOGI("SWAP: %s turned on", next_swap.c_str());
             active_swaps.push_back(next_swap);
-            remove_element(next_swap, available_swaps);
+            current_avs.pop_back();
           } else {
             ALOGE("Failed to activate swap: %s", next_swap.c_str());
           }
@@ -523,7 +535,7 @@ void dyn_swap_service() {
               swapoff_thread.emplace_back(swapoff_th, last_active_swap,
                                           ref(available_swaps),
                                           ref(active_swaps));
-              remove_element(last_active_swap, active_swaps);
+              active_swaps.pop_back();
             }
           } catch (const out_of_range &e) {
             if (scnd_log) {
