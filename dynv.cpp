@@ -291,11 +291,12 @@ pair<vector<string>, vector<string>> get_available_swap() {
 
 vector<string> get_active_swap() {
   string line;
-  vector<string> active_swaps;
+  vector<pair<string, long>> swaps; // Store (device, usage)
   ifstream file(SWAP_PROC_FILE);
 
   if (!file) {
     ALOGE("Error: Unable to open %s", SWAP_PROC_FILE);
+    return {}; // Return empty if file can't be opened
   }
 
   // Skip header
@@ -304,8 +305,24 @@ vector<string> get_active_swap() {
   while (getline(file, line)) {
     istringstream iss(line);
     string device;
-    iss >> device;
-    active_swaps.push_back(device);
+    long size, used; // We only care about "used"
+    iss >> device >> size >> used;
+
+    if (!device.empty()) {
+      swaps.emplace_back(device, used);
+    }
+  }
+
+  // Sort swaps by usage (descending order)
+  sort(swaps.begin(), swaps.end(),
+       [](const pair<string, long> &a, const pair<string, long> &b) {
+         return a.second > b.second; // Biggest usage first
+       });
+
+  // Extract sorted device names
+  vector<string> active_swaps;
+  for (const auto &swap : swaps) {
+    active_swaps.push_back(swap.first);
   }
 
   return active_swaps;
