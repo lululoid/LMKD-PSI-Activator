@@ -6,9 +6,78 @@
 <string>clang version 19.1.7</string>
  <key>diagnostics</key>
  <array>
+  <dict>
+   <key>path</key>
+   <array>
+    <dict>
+     <key>kind</key><string>event</string>
+     <key>location</key>
+     <dict>
+      <key>line</key><integer>479</integer>
+      <key>col</key><integer>8</integer>
+      <key>file</key><integer>0</integer>
+     </dict>
+     <key>ranges</key>
+     <array>
+       <array>
+        <dict>
+         <key>line</key><integer>479</integer>
+         <key>col</key><integer>8</integer>
+         <key>file</key><integer>0</integer>
+        </dict>
+        <dict>
+         <key>line</key><integer>479</integer>
+         <key>col</key><integer>25</integer>
+         <key>file</key><integer>0</integer>
+        </dict>
+       </array>
+       <array>
+        <dict>
+         <key>line</key><integer>479</integer>
+         <key>col</key><integer>29</integer>
+         <key>file</key><integer>0</integer>
+        </dict>
+        <dict>
+         <key>line</key><integer>479</integer>
+         <key>col</key><integer>42</integer>
+         <key>file</key><integer>0</integer>
+        </dict>
+       </array>
+     </array>
+     <key>depth</key><integer>0</integer>
+     <key>extended_message</key>
+     <string>Value stored to &apos;is_swapoff_session&apos; during its initialization is never read</string>
+     <key>message</key>
+     <string>Value stored to &apos;is_swapoff_session&apos; during its initialization is never read</string>
+    </dict>
+   </array>
+   <key>description</key><string>Value stored to &apos;is_swapoff_session&apos; during its initialization is never read</string>
+   <key>category</key><string>Unused code</string>
+   <key>type</key><string>Dead initialization</string>
+   <key>check_name</key><string>deadcode.DeadStores</string>
+   <!-- This hash is experimental and going to change! -->
+   <key>issue_hash_content_of_line_in_context</key><string>49e39e2d82e7ad2f05c0a0036a7404b9</string>
+  <key>issue_context_kind</key><string>function</string>
+  <key>issue_context</key><string>dyn_swap_service</string>
+  <key>issue_hash_function_offset</key><string>36</string>
+  <key>location</key>
+  <dict>
+   <key>line</key><integer>479</integer>
+   <key>col</key><integer>8</integer>
+   <key>file</key><integer>0</integer>
+  </dict>
+  <key>ExecutedLines</key>
+  <dict>
+   <key>0</key>
+   <array>
+    <integer>479</integer>
+   </array>
+  </dict>
+  </dict>
  </array>
  <key>files</key>
  <array>
+  <string>/data/data/com.termux/files/home/Projects/LMKD-PSI-Activator/dynv.cpp</string>
  </array>
 </dict>
 </plist>

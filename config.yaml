@@ -12,6 +12,7 @@ dynamic_swappiness:
 virtual_memory:
   enable: true
   pressure_binding: false
+  deactivate_in_doze: true
   zram:
     activation_threshold: 65
     deactivation_threshold: 55

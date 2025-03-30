@@ -414,6 +414,29 @@ void swapoff_th(const string &device,
   }
 }
 
+bool is_doze_mode() {
+  FILE *pipe = popen("dumpsys deviceidle get deep", "r");
+  if (!pipe) {
+    cerr << "Failed to check Doze Mode!" << endl;
+    return false;
+  }
+
+  char buffer[128];
+  string result = "";
+
+  while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+    result += buffer;
+  }
+
+  pclose(pipe);
+
+  // Trim whitespace
+  result.erase(0, result.find_first_not_of(" \n\r\t"));
+  result.erase(result.find_last_not_of(" \n\r\t") + 1);
+
+  return (result == "IDLE");
+}
+
 /**
  * Dynamic swappiness adjustment service.
  */
@@ -441,6 +464,8 @@ void dyn_swap_service() {
       read_config(".virtual_memory.swap.deactivation_threshold", 50);
   bool PRESSURE_BINDING =
       read_config(".virtual_memory.pressure_binding", false);
+  bool DEACTIVATE_IN_DOZE =
+      read_config(".virtual_memory.deactivate_in_doze", true);
 
   vector<string> active_swaps = get_active_swap();
   pair<vector<string>, vector<string>> available_swaps = get_available_swap();
@@ -451,6 +476,7 @@ void dyn_swap_service() {
   int last_swappiness = read_swappiness(), new_swappiness = last_swappiness;
   int lst_scnd_act_threshold;
   bool unbounded = true, no_pressure = false, scnd_log = true;
+  bool is_swapoff_session = is_doze_mode();
   vector<thread> swapoff_thread;
   vector<string> *current_avs;
 
@@ -479,6 +505,11 @@ void dyn_swap_service() {
     } else {
       new_swappiness = min(SWAPPINESS_MAX, new_swappiness + SWAPPINESS_STEP);
       unbounded = !PRESSURE_BINDING;
+    }
+
+    is_swapoff_session = is_doze_mode();
+    if (!DEACTIVATE_IN_DOZE) {
+      is_swapoff_session = true;
     }
 
     if (new_swappiness != current_swappiness &&
@@ -535,7 +566,7 @@ void dyn_swap_service() {
           } else {
             ALOGE("Failed to activate swap: %s", next_swap.c_str());
           }
-        } else {
+        } else if (is_swapoff_session) {
           try {
             scnd_lst_swap = active_swaps.at(active_swaps.size() - 2);
             lst_scnd_act_threshold =
@@ -546,6 +577,8 @@ void dyn_swap_service() {
 
             if (sc_prev_swap_usg.second < lst_scnd_act_threshold &&
                 lst_swap_usage.first < deactivation_threshold) {
+              ALOGI(
+                  "Device in doze mode. Conditions met, deactivating swap...");
               swapoff_thread.emplace_back(swapoff_th, last_active_swap,
                                           ref(available_swaps),
                                           ref(active_swaps));
