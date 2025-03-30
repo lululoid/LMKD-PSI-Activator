@@ -8,6 +8,7 @@ dynamic_swappiness:
     memory_pressure: 15
     io_pressure: 30
     step: 2
+    apply_step: 20
 virtual_memory:
   enable: true
   pressure_binding: false

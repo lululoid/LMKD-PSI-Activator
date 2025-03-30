@@ -429,6 +429,8 @@ void dyn_swap_service() {
   int IO_PRESSURE_THRESHOLD =
       read_config(".dynamic_swappiness.threshold.io_pressure", 30);
   int SWAPPINESS_STEP = read_config(".dynamic_swappiness.threshold.step", 2);
+  int SWAPPINESS_APPLY_STEP =
+      read_config(".dynamic_swappiness.threshold.apply_step", 20);
   int ZRAM_ACTIVATION_THRESHOLD =
       read_config(".virtual_memory.zram.activation_threshold", 70);
   int ZRAM_DEACTIVATION_THRESHOLD =
@@ -481,7 +483,7 @@ void dyn_swap_service() {
 
     if (new_swappiness != current_swappiness &&
         new_swappiness >= SWAPPINESS_MIN) {
-      if (abs(last_swappiness - new_swappiness) >= 10 ||
+      if (abs(last_swappiness - new_swappiness) >= SWAPPINESS_APPLY_STEP ||
           new_swappiness == SWAPPINESS_MIN ||
           new_swappiness == SWAPPINESS_MAX) {
         ALOGI("Swappiness -> %d", new_swappiness);
