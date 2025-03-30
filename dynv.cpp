@@ -337,11 +337,6 @@ pair<int, int> get_swap_usage(const string &device) {
   return {used_mb, used_percentage}; // Return {used MB, percentage}
 }
 
-void remove_element(const string &element, vector<string> &elements) {
-  elements.erase(remove(elements.begin(), elements.end(), element),
-                 elements.end());
-}
-
 int get_lscount(int threshold) {
   string line;
   ifstream proc_file(SWAP_PROC_FILE);
@@ -391,7 +386,7 @@ void swapoff_th(const string &device,
 
   if (swapoff(device.c_str()) == 0) {
     ALOGI("Swap: %s is turned off.", device.c_str());
-    if (device.find("zram")) {
+    if (device.find("zram") != string::npos) {
       available_swaps.first.push_back(device);
     } else {
       available_swaps.second.push_back(device);
