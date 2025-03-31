@@ -482,10 +482,11 @@ void dyn_swap_service() {
       read_config(".virtual_memory.swap.activation_threshold", 90);
   int SWAP_DEACTIVATION_THRESHOLD =
       read_config(".virtual_memory.swap.deactivation_threshold", 50);
+  int SWAP_DEACTIVATION_TIME = read_config(".virtual_memory.wait_timeout", 10);
   bool PRESSURE_BINDING =
       read_config(".virtual_memory.pressure_binding", false);
-  bool DEACTIVATE_IN_DOZE =
-      read_config(".virtual_memory.deactivate_in_doze", true);
+  bool DEACTIVATE_IN_SLEEP =
+      read_config(".virtual_memory.deactivate_in_sleep", true);
 
   vector<string> active_swaps = get_active_swap();
   pair<vector<string>, vector<string>> available_swaps = get_available_swap();
@@ -495,6 +496,7 @@ void dyn_swap_service() {
   int activation_threshold, deactivation_threshold, current_swappiness;
   int last_swappiness = read_swappiness(), new_swappiness = last_swappiness;
   int lst_scnd_act_threshold;
+  int wait_timeout = SWAP_DEACTIVATION_TIME * 60;
   bool unbounded = true, no_pressure = false, scnd_log = true;
   bool is_swapoff_session = false;
   vector<thread> swapoff_thread;
@@ -527,13 +529,14 @@ void dyn_swap_service() {
       unbounded = !PRESSURE_BINDING;
     }
 
-    if (!DEACTIVATE_IN_DOZE) {
+    if (!DEACTIVATE_IN_SLEEP) {
       is_swapoff_session = true;
-    } else if (is_sleep_mode()) {
-      ALOGI("Waiting for 5 minutes...");
-      for (size_t i = 0; i < 300; i++) {
+    } else if (!is_swapoff_session && is_sleep_mode()) {
+      ALOGI("Waiting for %d minutes...", SWAP_DEACTIVATION_TIME);
+      for (int i = 0; i < wait_timeout; ++i) {
         if (!is_sleep_mode()) {
-          ALOGI("Device awake before 5 minutes, wait skipped.");
+          ALOGI("Device awake before %d minutes, swap deactivation skipped.",
+                SWAP_DEACTIVATION_TIME);
           break;
         }
         this_thread::sleep_for(chrono::seconds(1));
@@ -541,6 +544,7 @@ void dyn_swap_service() {
 
       if (is_sleep_mode()) {
         is_swapoff_session = true;
+        ALOGD("Swapoff session started...");
       }
     }
 
@@ -609,8 +613,9 @@ void dyn_swap_service() {
 
             if (sc_prev_swap_usg.second < lst_scnd_act_threshold &&
                 lst_swap_usage.first < deactivation_threshold) {
-              ALOGI("Device sleep more than 5 minutes. Conditions met, "
-                    "deactivating swap...");
+              ALOGI("Device sleep more than %d minutes. Conditions met, "
+                    "deactivating swap...",
+                    SWAP_DEACTIVATION_TIME);
               swapoff_thread.emplace_back(swapoff_th, last_active_swap,
                                           ref(available_swaps),
                                           ref(active_swaps));
