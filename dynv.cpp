@@ -437,6 +437,26 @@ bool is_doze_mode() {
   return (result == "IDLE");
 }
 
+bool is_sleep_mode() {
+  FILE *pipe = popen("dumpsys power", "r");
+  if (!pipe) {
+    cerr << "Failed to check Sleep Mode!" << endl;
+    return false;
+  }
+
+  char buffer[128];
+  string result = "";
+
+  while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+    result += buffer;
+  }
+
+  pclose(pipe);
+
+  // Check if display is OFF
+  return (result.find("mWakefulness=Asleep") != string::npos);
+}
+
 /**
  * Dynamic swappiness adjustment service.
  */
@@ -476,7 +496,7 @@ void dyn_swap_service() {
   int last_swappiness = read_swappiness(), new_swappiness = last_swappiness;
   int lst_scnd_act_threshold;
   bool unbounded = true, no_pressure = false, scnd_log = true;
-  bool is_swapoff_session = is_doze_mode();
+  bool is_swapoff_session = false;
   vector<thread> swapoff_thread;
   vector<string> *current_avs;
 
@@ -507,9 +527,21 @@ void dyn_swap_service() {
       unbounded = !PRESSURE_BINDING;
     }
 
-    is_swapoff_session = is_doze_mode();
     if (!DEACTIVATE_IN_DOZE) {
       is_swapoff_session = true;
+    } else if (is_sleep_mode()) {
+      ALOGI("Waiting for 5 minutes...");
+      for (size_t i = 0; i < 300; i++) {
+        if (!is_sleep_mode()) {
+          ALOGI("Device awake before 5 minutes, wait skipped.");
+          break;
+        }
+        this_thread::sleep_for(chrono::seconds(1));
+      }
+
+      if (is_sleep_mode()) {
+        is_swapoff_session = true;
+      }
     }
 
     if (new_swappiness != current_swappiness &&
@@ -577,8 +609,8 @@ void dyn_swap_service() {
 
             if (sc_prev_swap_usg.second < lst_scnd_act_threshold &&
                 lst_swap_usage.first < deactivation_threshold) {
-              ALOGI(
-                  "Device in doze mode. Conditions met, deactivating swap...");
+              ALOGI("Device sleep more than 5 minutes. Conditions met, "
+                    "deactivating swap...");
               swapoff_thread.emplace_back(swapoff_th, last_active_swap,
                                           ref(available_swaps),
                                           ref(active_swaps));
@@ -590,6 +622,7 @@ void dyn_swap_service() {
               scnd_log = false;
             }
           }
+          is_swapoff_session = false;
         }
       }
     }
