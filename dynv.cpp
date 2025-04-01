@@ -492,8 +492,7 @@ void dyn_swap_service() {
   string swap_type = "zram";
   string last_active_swap, scnd_lst_swap, next_swap, first_swap;
   pair<int, int> lst_swap_usage, sc_prev_swap_usg;
-  int activation_threshold, deactivation_threshold, current_swappiness,
-      lst_scnd_act_threshold;
+  int activation_threshold, deactivation_threshold, lst_scnd_act_threshold;
   int last_swappiness = read_swappiness(), new_swappiness = SWAPPINESS_MIN;
   int wait_timeout = SWAP_DEACTIVATION_TIME * 60;
   bool unbounded = true, no_pressure = false, scnd_log = true;
@@ -502,12 +501,6 @@ void dyn_swap_service() {
   vector<string> *current_avs;
 
   while (running) {
-    current_swappiness = read_swappiness();
-    if (current_swappiness == -1) {
-      ALOGE("Error reading swappiness");
-      return;
-    }
-
     double memory_metric = read_pressure("memory", "some", "avg60");
     double cpu_metric = read_pressure("cpu", "some", "avg10");
     double io_metric = read_pressure("io", "some", "avg60");
@@ -545,9 +538,11 @@ void dyn_swap_service() {
         is_swapoff_session = true;
         ALOGD("Swapoff session started...");
       }
+    } else if (!is_sleep_mode()) {
+      is_swapoff_session = false;
     }
 
-    if (new_swappiness != current_swappiness) {
+    if (new_swappiness != last_swappiness) {
       if (abs(last_swappiness - new_swappiness) >= SWAPPINESS_APPLY_STEP ||
           new_swappiness == SWAPPINESS_MIN ||
           new_swappiness == SWAPPINESS_MAX) {
@@ -569,13 +564,12 @@ void dyn_swap_service() {
         if (!current_avs->empty()) {
           first_swap = current_avs->back();
           active_swaps.push_back(first_swap);
+          current_avs->pop_back();
 
           if ((swapon(first_swap.c_str(), 0)) == 0) {
             ALOGI("SWAP: %s turned on.", first_swap.c_str());
-            current_avs->pop_back();
           } else {
             ALOGE("Failed to activate swap: %s", first_swap.c_str());
-            continue;
           }
         }
       } else {
@@ -592,14 +586,13 @@ void dyn_swap_service() {
 
         if (lst_swap_usage.second > activation_threshold) {
           next_swap = current_avs->back();
+          active_swaps.push_back(next_swap);
+          current_avs->pop_back();
 
           if ((swapon(next_swap.c_str(), 0)) == 0) {
             ALOGI("SWAP: %s turned on", next_swap.c_str());
-            active_swaps.push_back(next_swap);
-            current_avs->pop_back();
           } else {
             ALOGE("Failed to activate swap: %s", next_swap.c_str());
-            continue;
           }
         } else {
           try {
@@ -637,7 +630,6 @@ void dyn_swap_service() {
               scnd_log = false;
             }
           }
-          is_swapoff_session = false;
         }
       }
     }

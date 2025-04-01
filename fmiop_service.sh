@@ -28,7 +28,7 @@ monitor_config() {
 
 	while true; do
 		current_checksum=$(get_config_checksum)
-		if [ "$current_checksum" != "$last_checksum" ]; then
+		if [ -n "$last_checksum" ] && [ "$current_checksum" != "$last_checksum" ]; then
 			exec 3>&1
 			set -x
 
@@ -41,6 +41,8 @@ monitor_config() {
 
 			exec 3>&-
 			set +x
+		else
+			last_checksum=$(get_config_checksum)
 		fi
 		sleep 5 # Check every 5 seconds
 	done &

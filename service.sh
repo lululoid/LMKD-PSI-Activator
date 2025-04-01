@@ -81,6 +81,10 @@ available_space=$TOTALMEM
 	[ $TOTALMEM_GB -gt 20 ] && break
 done
 
+# Give time for lmkd to adjust
+rm_prop sys.lmk.minfree_levels
+sleep 5m
+
 ### Start Services ###
 $MODPATH/fmiop_service.sh
 loger "fmiop started"

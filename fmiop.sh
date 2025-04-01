@@ -210,11 +210,14 @@ loger_watcher() {
 rm_prop() {
 	local prop
 	for prop in "$@"; do
-		resetprop -d "$prop" && cat <<EOF
+		resetprop -d "$prop" && {
+			cat <<EOF
 
   X $prop deleted
 
 EOF
+			loger "$prop deleted"
+		}
 	done
 }
 

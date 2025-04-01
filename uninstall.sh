@@ -1,5 +1,8 @@
 #!/system/bin/sh
 # shellcheck disable=SC3010,SC3060,SC3043,SC2086,SC2046
+exec 3>&1 1>>"/data/local/tmp/fmiop_${script_name%.sh}.log" 2>&1
+set -x # Enable debug mode to show commands before execution
+
 script_name=$(basename "$0")
 timeout=180 #timeout for 3 minutes
 
@@ -12,9 +15,6 @@ until [ "$(resetprop sys.boot_completed)" -eq 1 ] && [ -d /sdcard/Android/fmiop 
 	sleep 1
 done
 
-exec 3>&1 1>>"/sdcard/fmiop_${script_name%.sh}.log" 2>&1
-set -x # Enable debug mode to show commands before execution
-
 # Define target paths correctly
 TARGETS="/sdcard/Android/fmiop /data/adb/fmiop*"
 
@@ -22,3 +22,5 @@ TARGETS="/sdcard/Android/fmiop /data/adb/fmiop*"
 for target in $TARGETS; do
 	[ -e "$target" ] && rm -rf "$target" && echo "Deleted: $target" || echo "Not found: $target"
 done
+
+mv "/data/local/tmp/fmiop_${script_name%.sh}.log" /sdcard
