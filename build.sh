@@ -81,12 +81,15 @@ generate_changelog() {
 	local version="$1"
 	local versionCode="$2"
 	local changelog_file="fmiop-v${version}_${versionCode}-changelog.md"
+	local message="
+📣 For more updates and discussions about bugs, features, etc., join our Telegram channel: [Initechzer0](https://t.me/initentangtech)"
 
 	# Remove previous changelogs
 	rm -f fmiop-v*-changelog.md
 	echo "- Removed old changelogs"
 
 	echo "# Changelog for v${version} (Build ${versionCode})" >"$changelog_file"
+	echo "$message" >>"$changelog_file"
 	echo "" >>"$changelog_file"
 
 	# Get last version commit hash

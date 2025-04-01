@@ -498,7 +498,7 @@ void dyn_swap_service() {
   int lst_scnd_act_threshold;
   int wait_timeout = SWAP_DEACTIVATION_TIME * 60;
   bool unbounded = true, no_pressure = false, scnd_log = true;
-  bool is_swapoff_session = false;
+  bool is_swapoff_session = false, is_condition_met, is_very_low_usage;
   vector<thread> swapoff_thread;
   vector<string> *current_avs;
 
@@ -602,7 +602,7 @@ void dyn_swap_service() {
           } else {
             ALOGE("Failed to activate swap: %s", next_swap.c_str());
           }
-        } else if (is_swapoff_session) {
+        } else {
           try {
             scnd_lst_swap = active_swaps.at(active_swaps.size() - 2);
             lst_scnd_act_threshold =
@@ -610,12 +610,23 @@ void dyn_swap_service() {
                     ? SWAP_ACTIVATION_THRESHOLD
                     : ZRAM_ACTIVATION_THRESHOLD;
             sc_prev_swap_usg = get_swap_usage(scnd_lst_swap);
+            is_condition_met =
+                (sc_prev_swap_usg.second < lst_scnd_act_threshold &&
+                 lst_swap_usage.first < deactivation_threshold) &&
+                is_swapoff_session;
+            is_very_low_usage =
+                (sc_prev_swap_usg.second < lst_scnd_act_threshold &&
+                 lst_swap_usage.first < 10);
 
-            if (sc_prev_swap_usg.second < lst_scnd_act_threshold &&
-                lst_swap_usage.first < deactivation_threshold) {
-              ALOGI("Device sleep more than %d minutes. Conditions met, "
-                    "deactivating swap...",
+            if (is_condition_met) {
+              ALOGI("Device sleep more than %d minutes. Deactivating swap...",
                     SWAP_DEACTIVATION_TIME);
+              swapoff_thread.emplace_back(swapoff_th, last_active_swap,
+                                          ref(available_swaps),
+                                          ref(active_swaps));
+              active_swaps.pop_back();
+            } else if (is_very_low_usage) {
+              ALOGI("Low swap usage detected...");
               swapoff_thread.emplace_back(swapoff_th, last_active_swap,
                                           ref(available_swaps),
                                           ref(active_swaps));
