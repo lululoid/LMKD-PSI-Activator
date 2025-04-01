@@ -151,30 +151,20 @@ update_config() {
 	local current_config_v last_config_v is_update current_config
 	current_config=$MODPATH/config.yaml
 	current_config_v=$(yq '.config_version' $current_config)
-	last_config_v=$(yq '.config_version' $CONFIG_FILE)
+	last_config_v=$(yq '.config_version' $CONFIG_INTERNAL)
 	is_update=$(echo "$current_config_v > $last_config_v" | bc -l)
-	local config_internal="$FMIOP_DIR/config.yaml" # YAML config file for thresholds and settings
 
-	if [ ! -f "$CONFIG_FILE" ]; then
+	if [ ! -f "$CONFIG_FILE" ] || [ ! -f "$CONFIG_INTERNAL" ]; then
 		mkdir -p $FMIOP_DIR
+		cp $current_config $CONFIG_INTERNAL
 		cp $current_config $CONFIG_FILE
 		ui_print "
 - Config is located at $CONFIG_FILE"
 		please_reboot=true
-	elif [ "$(echo "$last_config_v 0.2" | awk '{print ($1 == $2) ? 1 : 0}')" -eq 1 ]; then
+	elif [ "$(echo "$last_config_v 0.5" | awk '{print ($1 <= $2) ? 1 : 0}')" -eq 1 ]; then
 		mkdir -p $FMIOP_DIR
-		cp $current_config $current_config.old
-		cp $CONFIG_FILE $CONFIG_FILE.old
-		config_ready=true
-	elif [ "$(echo "$last_config_v 0.4" | awk '{print ($1 == $2) ? 1 : 0}')" -eq 1 ]; then
-		mkdir -p $FMIOP_DIR
-		cp $current_config $current_config.old
-		cp $CONFIG_FILE $CONFIG_FILE.old
-		config_ready=true
-	elif [ "$(echo "$last_config_v 0.5" | awk '{print ($1 == $2) ? 1 : 0}')" -eq 1 ]; then
-		mkdir -p $FMIOP_DIR
-		cp $config_internal $config_internal.old
-		cp $current_config $config_internal
+		cp $CONFIG_INTERNAL $CONFIG_INTERNAL.old
+		cp $current_config $CONFIG_INTERNAL
 		cp $current_config $CONFIG_FILE
 		config_ready=true
 	elif [ "$last_config_v" = "null" ] || [ $is_update -eq 1 ]; then

@@ -7,8 +7,8 @@ set -x # Prints commands, prefixing them with a character stored in an environme
 . $MODPATH/fmiop.sh
 
 get_config_checksum() {
-	if [ -f "$CONFIG_FILE" ]; then
-		md5sum "$CONFIG_FILE" 2>/dev/null | awk '{print $1}' || echo "no_hash"
+	if [ -f "$CONFIG_INTERNAL" ]; then
+		md5sum "$CONFIG_INTERNAL" 2>/dev/null | awk '{print $1}' || echo "no_hash"
 		return 0
 	else
 		loger "missing config"
@@ -26,16 +26,14 @@ monitor_config() {
 	exec 3>&-
 	set +x
 
-	local config_internal="$FMIOP_DIR/config.yaml" # YAML config file for thresholds and settings
-
 	while true; do
 		current_checksum=$(get_config_checksum)
 		if [ "$current_checksum" != "$last_checksum" ]; then
 			exec 3>&1
 			set -x
 
-			loger "Config file $config_internal changed (checksum: $last_checksum -> $current_checksum)"
-			cp $config_internal $CONFIG_FILE
+			loger "Config file $CONFIG_INTERNAL changed (checksum: $last_checksum -> $current_checksum)"
+			cp $CONFIG_INTERNAL $CONFIG_FILE
 			kill_services
 			loger "Killed service PIDs"
 			start_services

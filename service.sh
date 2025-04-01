@@ -38,14 +38,20 @@ export MODPATH BIN NVBASE LOG_ENABLED LOG_FOLDER LOG CPU_CORES_COUNT TOTALMEM SI
 # Load fmiop functions (loger, turnoff_zram, add_zram, etc.)
 . "$MODDIR/fmiop.sh"
 
+loger "===REBOOT START FROM HERE==="
+
 ### ZRAM Initialization ###
 # Disable and remove existing ZRAM partition (zram0)
 turnoff_zram /dev/block/zram0
 remove_zram 0 && loger "Successfully removed /dev/block/zram0"
 
-$MODPATH/log_service.sh
+### Wait for Boot Completion ###
+# Loop until sys.boot_completed is 1, checking every 5 seconds
+until [ "$(resetprop sys.boot_completed)" -eq 1 ]; do
+	sleep 5
+done
 
-loger "===REBOOT START FROM HERE==="
+$MODPATH/log_service.sh
 
 VIR_E=$(read_config ".virtual_memory.enable" false)
 
@@ -70,14 +76,9 @@ available_space=$TOTALMEM
 	if [ -z "$zram_id" ]; then
 		remove_zram 0
 		add_zram
-		resize_zram "$TOTALMEM" 0 && break
 	fi
 
 	[ $TOTALMEM_GB -gt 20 ] && break
-done
-
-until [ "$(resetprop sys.boot_completed)" -eq 1 ]; do
-	sleep 5
 done
 
 ### Start Services ###

@@ -20,7 +20,8 @@ PID_DB="$LOG_FOLDER/$TAG.pids"                    # File to store process IDs of
 FOGIMP_PROPS="$NVBASE/modules/fogimp/system.prop" # External properties file for LMKD tweaks
 FMIOP_DIR=/sdcard/Android/fmiop
 SWAP_FILENAME="$NVBASE/fmiop_swap"
-CONFIG_FILE="$LOG_FOLDER/config.yaml" # YAML config file for thresholds and settings
+CONFIG_FILE="$LOG_FOLDER/config.yaml"    # YAML config file for thresholds and settings
+CONFIG_INTERNAL="$FMIOP_DIR/config.yaml" # YAML config file for thresholds and settings
 
 # Export variables for use in sourced scripts or subprocesses
 export TAG LOGFILE LOG_FOLDER
@@ -31,6 +32,7 @@ alias sed='$MODPATH/tools/sed' # Custom sed binary (MODPATH must be set)
 alias yq='$MODPATH/tools/yq'
 alias tar='$MODPATH/tools/tar'
 alias ps='$MODPATH/tools/ps'
+alias swapon='/system/bin/swapon'
 
 ### Utility Functions ###
 

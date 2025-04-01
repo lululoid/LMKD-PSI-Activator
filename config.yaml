@@ -2,13 +2,13 @@ config_version: 0.6
 dynamic_swappiness:
   swappiness_range:
     max: 100
-    min: 60
+    min: 80
   threshold:
     cpu_pressure: 40
     memory_pressure: 15
     io_pressure: 30
-    step: 2
-    apply_step: 20
+  step: 2
+  apply_step: 20
 virtual_memory:
   enable: true
   pressure_binding: false

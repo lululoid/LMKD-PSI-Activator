@@ -462,7 +462,7 @@ bool is_sleep_mode() {
  */
 void dyn_swap_service() {
   int SWAPPINESS_MAX =
-      read_config(".dynamic_swappiness.swappiness_range.max", 140);
+      read_config(".dynamic_swappiness.swappiness_range.max", 100);
   int SWAPPINESS_MIN =
       read_config(".dynamic_swappiness.swappiness_range.min", 80);
   int CPU_PRESSURE_THRESHOLD =
@@ -471,9 +471,8 @@ void dyn_swap_service() {
       read_config(".dynamic_swappiness.threshold.memory_pressure", 15);
   int IO_PRESSURE_THRESHOLD =
       read_config(".dynamic_swappiness.threshold.io_pressure", 30);
-  int SWAPPINESS_STEP = read_config(".dynamic_swappiness.threshold.step", 2);
-  int SWAPPINESS_APPLY_STEP =
-      read_config(".dynamic_swappiness.threshold.apply_step", 20);
+  int SWAPPINESS_STEP = read_config(".dynamic_swappiness.step", 2);
+  int SWAPPINESS_APPLY_STEP = read_config(".dynamic_swappiness.apply_step", 20);
   int ZRAM_ACTIVATION_THRESHOLD =
       read_config(".virtual_memory.zram.activation_threshold", 70);
   int ZRAM_DEACTIVATION_THRESHOLD =
@@ -495,7 +494,7 @@ void dyn_swap_service() {
   pair<int, int> lst_swap_usage, sc_prev_swap_usg;
   int activation_threshold, deactivation_threshold, current_swappiness,
       lst_scnd_act_threshold;
-  int last_swappiness = read_swappiness(), new_swappiness = last_swappiness;
+  int last_swappiness = read_swappiness(), new_swappiness = SWAPPINESS_MIN;
   int wait_timeout = SWAP_DEACTIVATION_TIME * 60;
   bool unbounded = true, no_pressure = false, scnd_log = true;
   bool is_swapoff_session = false, is_condition_met, is_very_low_usage;
@@ -548,14 +547,12 @@ void dyn_swap_service() {
       }
     }
 
-    if (new_swappiness != current_swappiness &&
-        new_swappiness >= SWAPPINESS_MIN && new_swappiness <= SWAPPINESS_MAX) {
+    if (new_swappiness != current_swappiness) {
       if (abs(last_swappiness - new_swappiness) >= SWAPPINESS_APPLY_STEP ||
           new_swappiness == SWAPPINESS_MIN ||
           new_swappiness == SWAPPINESS_MAX) {
         ALOGI("Swappiness -> %d", new_swappiness);
         last_swappiness = new_swappiness;
-
         write_swappiness(new_swappiness);
       }
     }
@@ -578,6 +575,7 @@ void dyn_swap_service() {
             current_avs->pop_back();
           } else {
             ALOGE("Failed to activate swap: %s", first_swap.c_str());
+            continue;
           }
         }
       } else {
@@ -601,6 +599,7 @@ void dyn_swap_service() {
             current_avs->pop_back();
           } else {
             ALOGE("Failed to activate swap: %s", next_swap.c_str());
+            continue;
           }
         } else {
           try {
