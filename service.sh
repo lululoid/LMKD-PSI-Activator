@@ -85,3 +85,4 @@ done
 $MODPATH/fmiop_service.sh
 loger "fmiop started"
 loger "fmiop initialization complete; services started"
+apply_uffd_gc

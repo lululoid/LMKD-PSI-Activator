@@ -118,6 +118,8 @@ EOF
 		fi
 	done
 	kill -9 $capture_pid
+	exec 3>&1
+	set -x
 }
 
 main() {
@@ -145,6 +147,7 @@ to Android 10+"
 - LMKD PSI service keeper started"
 		relmkd
 	fi
+	apply_uffd_gc
 }
 
 update_config() {
