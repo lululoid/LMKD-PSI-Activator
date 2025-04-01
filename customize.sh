@@ -13,7 +13,7 @@ exec 3>&1 1>>$LOG 2>&1
 exec 1>&3
 set -x
 echo "
-⟩ $(date -Is)" >>$LOG
+- $(date -Is)" >>$LOG
 
 SKIPUNZIP=1
 BIN=/system/bin
@@ -36,7 +36,7 @@ fix_mistakes() {
 
 		if [ $file_size -gt $ten_mb ]; then
 			ui_print "
-⟩ $file size: $file_size is emptied."
+- $file size: $file_size is emptied."
 			echo "" >$file
 		fi
 	done || return 1
@@ -59,7 +59,7 @@ lmkd_apply() {
 	# Determine if device is lowram or less than 2GB
 	if [ "$totalmem" -lt 2097152 ]; then
 		uprint "
-⟩ ! Device is low RAM. Applying low RAM tweaks"
+- ! Device is low RAM. Applying low RAM tweaks"
 		cat <<EOF >>$MODPATH/system.prop
 ro.config.low_ram=true
 ro.lmk.use_psi=true
@@ -78,7 +78,7 @@ EOF
 	rm_prop sys.lmk.minfree_levels
 	approps $MODPATH/system.prop
 	uprint "
-⟩ LMKD PSI mode activated
+- LMKD PSI mode activated
   RAM is better utilized with something useful than left unused"
 }
 
@@ -86,7 +86,7 @@ apply_touch_issue_workaround() {
 	# Add workaround for MIUI touch issue when LMKD is in PSI mode
 	# because despite its beauty MIUI is having weird issues
 	cat <<EOF
-⟩ Do you want some smoothie🍹? Due to unknown
+- Do you want some smoothie🍹? Due to unknown
   reason. LMKD will thrash so much on your device 
   until your phone goes slow. This is simple work- 
   around to make your phone stay as smooth as 
@@ -126,23 +126,23 @@ main() {
 
 	kill_all_pids
 	if [ "$android_version" -lt 10 ]; then
-		uprint "⟩ Your Android version is not supported. Performance
+		uprint "- Your Android version is not supported. Performance
 tweaks won't be applied. Please upgrade your phone 
 to Android 10+"
 	else
 		miui_v_code=$(resetprop ro.miui.ui.version.code)
 		uprint "
-⟩ Total memory = $(free -h | awk '/^Mem:/ {print $2}')
+- Total memory = $(free -h | awk '/^Mem:/ {print $2}')
 "
 
 		apply_touch_issue_workaround
 		echo "
-⟩ Applying lowmemorykiller properties"
+- Applying lowmemorykiller properties"
 		lmkd_apply
 		$MODPATH/log_service.sh
 		$MODPATH/fmiop_service.sh
 		kill -0 "$(read_pid fmiop.lmkd_loger.pid)" && uprint "
-⟩ LMKD PSI service keeper started"
+- LMKD PSI service keeper started"
 		relmkd
 	fi
 }
@@ -153,12 +153,13 @@ update_config() {
 	current_config_v=$(yq '.config_version' $current_config)
 	last_config_v=$(yq '.config_version' $CONFIG_FILE)
 	is_update=$(echo "$current_config_v > $last_config_v" | bc -l)
+	local config_internal="$FMIOP_DIR/config.yaml" # YAML config file for thresholds and settings
 
 	if [ ! -f "$CONFIG_FILE" ]; then
 		mkdir -p $FMIOP_DIR
 		cp $current_config $CONFIG_FILE
 		ui_print "
-⟩ Config is located in $CONFIG_FILE"
+- Config is located at $CONFIG_FILE"
 		please_reboot=true
 	elif [ "$(echo "$last_config_v 0.2" | awk '{print ($1 == $2) ? 1 : 0}')" -eq 1 ]; then
 		mkdir -p $FMIOP_DIR
@@ -172,22 +173,23 @@ update_config() {
 		config_ready=true
 	elif [ "$(echo "$last_config_v 0.5" | awk '{print ($1 == $2) ? 1 : 0}')" -eq 1 ]; then
 		mkdir -p $FMIOP_DIR
-		cp $current_config $current_config.old
-		cp $CONFIG_FILE $CONFIG_FILE.old
+		cp $config_internal $config_internal.old
+		cp $current_config $config_internal
+		cp $current_config $CONFIG_FILE
 		config_ready=true
 	elif [ "$last_config_v" = "null" ] || [ $is_update -eq 1 ]; then
 		yq ea -i 'select(fileIndex == 0) * select(fileIndex > 0) | sort_keys(.)' $CONFIG_FILE $current_config
 		uprint "
-⟩ Config: $CONFIG_FILE is updated"
+- Config: $CONFIG_FILE is updated"
 	fi
 
 	[ $config_ready ] &&
 		uprint "
 ! Config is replaced with newer one. Backup $current_config.old created
-  Config is located in $CONFIG_FILE"
+  Config is located at $CONFIG_FILE"
 	[ $please_reboot ] &&
 		uprint "
-⟩ REBOOT now"
+- REBOOT now"
 }
 
 set_permissions

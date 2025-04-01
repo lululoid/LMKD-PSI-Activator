@@ -26,13 +26,16 @@ monitor_config() {
 	exec 3>&-
 	set +x
 
+	local config_internal="$FMIOP_DIR/config.yaml" # YAML config file for thresholds and settings
+
 	while true; do
 		current_checksum=$(get_config_checksum)
 		if [ "$current_checksum" != "$last_checksum" ]; then
 			exec 3>&1
 			set -x
 
-			loger "Config file $CONFIG_FILE changed (checksum: $last_checksum -> $current_checksum)"
+			loger "Config file $config_internal changed (checksum: $last_checksum -> $current_checksum)"
+			cp $config_internal $CONFIG_FILE
 			kill_services
 			loger "Killed service PIDs"
 			start_services

@@ -20,7 +20,7 @@ PID_DB="$LOG_FOLDER/$TAG.pids"                    # File to store process IDs of
 FOGIMP_PROPS="$NVBASE/modules/fogimp/system.prop" # External properties file for LMKD tweaks
 FMIOP_DIR=/sdcard/Android/fmiop
 SWAP_FILENAME="$NVBASE/fmiop_swap"
-CONFIG_FILE="$FMIOP_DIR/config.yaml" # YAML config file for thresholds and settings
+CONFIG_FILE="$LOG_FOLDER/config.yaml" # YAML config file for thresholds and settings
 
 # Export variables for use in sourced scripts or subprocesses
 export TAG LOGFILE LOG_FOLDER
@@ -585,8 +585,8 @@ setup_swap() {
 	free_space=$(df /data | sed -n '2p' | sed 's/[^0-9 ]*//g' | sed ':a;N;$!ba;s/\n/ /g' | awk '{print $4}')
 
 	if ! echo "$free_space" | grep -qE '^[0-9]+$' || [ -z "$free_space" ]; then
-		uprint "⟩ Error: Failed to retrieve valid free space information."
-		uprint "⟩ Skipping free space check, make sure you have enough space available."
+		uprint "- Error: Failed to retrieve valid free space information."
+		uprint "- Skipping free space check, make sure you have enough space available."
 		fuck_free_space=true
 	fi
 
@@ -600,7 +600,7 @@ setup_swap() {
 		if [ "$free_space" -ge "$swap_size" ] && [ "$swap_size" -gt 0 ] || [ $fuck_free_space ]; then
 			[ ! $fuck_free_space ] &&
 				uprint "
-⟩ Starting making SWAP. Please wait a moment...
+- Starting making SWAP. Please wait a moment...
   $((free_space / 1024))MB available. $((swap_size / 1024))MB needed"
 
 			swap_count=$((swap_size / quarter_gb))
@@ -618,11 +618,11 @@ setup_swap() {
 			:
 		else
 			uprint "
-⟩ Storage full. Please free up your storage."
+- Storage full. Please free up your storage."
 		fi
 	else
 		uprint "
-⟩ SWAP already exists."
+- SWAP already exists."
 	fi
 
 	return 1

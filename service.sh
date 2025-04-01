@@ -38,20 +38,14 @@ export MODPATH BIN NVBASE LOG_ENABLED LOG_FOLDER LOG CPU_CORES_COUNT TOTALMEM SI
 # Load fmiop functions (loger, turnoff_zram, add_zram, etc.)
 . "$MODDIR/fmiop.sh"
 
-loger "===REBOOT START FROM HERE==="
-
 ### ZRAM Initialization ###
 # Disable and remove existing ZRAM partition (zram0)
 turnoff_zram /dev/block/zram0
 remove_zram 0 && loger "Successfully removed /dev/block/zram0"
 
-### Wait for Boot Completion ###
-# Loop until sys.boot_completed is 1, checking every 5 seconds
-until [ "$(resetprop sys.boot_completed)" -eq 1 ] && [ -d /sdcard/Android/fmiop ]; do
-	sleep 5
-done
-
 $MODPATH/log_service.sh
+
+loger "===REBOOT START FROM HERE==="
 
 VIR_E=$(read_config ".virtual_memory.enable" false)
 
@@ -80,6 +74,10 @@ available_space=$TOTALMEM
 	fi
 
 	[ $TOTALMEM_GB -gt 20 ] && break
+done
+
+until [ "$(resetprop sys.boot_completed)" -eq 1 ]; do
+	sleep 5
 done
 
 ### Start Services ###

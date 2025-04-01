@@ -40,9 +40,9 @@ extern void fmiop();
 
 atomic<bool> running(true);
 const string fmiop_dir = "/sdcard/Android/fmiop";
-const string config_file = fmiop_dir + "/config.yaml";
 const string NVBASE = "/data/adb";
 const string LOG_FOLDER = NVBASE + "/" + LOG_TAG;
+const string config_file = LOG_FOLDER + "/config.yaml";
 const string PID_DB = LOG_FOLDER + "/" + LOG_TAG + ".pids";
 string SWAP_FILE = "fmiop_swap.";
 
@@ -549,7 +549,7 @@ void dyn_swap_service() {
     }
 
     if (new_swappiness != current_swappiness &&
-        new_swappiness >= SWAPPINESS_MIN) {
+        new_swappiness >= SWAPPINESS_MIN && new_swappiness <= SWAPPINESS_MAX) {
       if (abs(last_swappiness - new_swappiness) >= SWAPPINESS_APPLY_STEP ||
           new_swappiness == SWAPPINESS_MIN ||
           new_swappiness == SWAPPINESS_MAX) {
