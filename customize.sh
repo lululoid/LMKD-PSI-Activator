@@ -163,17 +163,17 @@ update_config() {
 	elif [ "$(echo "$last_config_v 0.2" | awk '{print ($1 == $2) ? 1 : 0}')" -eq 1 ]; then
 		mkdir -p $FMIOP_DIR
 		cp $current_config $current_config.old
-		cp $current_config $CONFIG_FILE
+		cp $CONFIG_FILE $CONFIG_FILE.old
 		config_ready=true
 	elif [ "$(echo "$last_config_v 0.4" | awk '{print ($1 == $2) ? 1 : 0}')" -eq 1 ]; then
 		mkdir -p $FMIOP_DIR
 		cp $current_config $current_config.old
-		cp $current_config $CONFIG_FILE
+		cp $CONFIG_FILE $CONFIG_FILE.old
 		config_ready=true
 	elif [ "$(echo "$last_config_v 0.5" | awk '{print ($1 == $2) ? 1 : 0}')" -eq 1 ]; then
 		mkdir -p $FMIOP_DIR
 		cp $current_config $current_config.old
-		cp $current_config $CONFIG_FILE
+		cp $CONFIG_FILE $CONFIG_FILE.old
 		config_ready=true
 	elif [ "$last_config_v" = "null" ] || [ $is_update -eq 1 ]; then
 		yq ea -i 'select(fileIndex == 0) * select(fileIndex > 0) | sort_keys(.)' $CONFIG_FILE $current_config
@@ -183,7 +183,7 @@ update_config() {
 
 	[ $config_ready ] &&
 		uprint "
-⚠️ Config is replaced with newer one. Backup $current_config.old created
+! Config is replaced with newer one. Backup $current_config.old created
   Config is located in $CONFIG_FILE"
 	[ $please_reboot ] &&
 		uprint "

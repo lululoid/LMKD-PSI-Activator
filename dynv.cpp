@@ -493,9 +493,9 @@ void dyn_swap_service() {
   string swap_type = "zram";
   string last_active_swap, scnd_lst_swap, next_swap, first_swap;
   pair<int, int> lst_swap_usage, sc_prev_swap_usg;
-  int activation_threshold, deactivation_threshold, current_swappiness;
+  int activation_threshold, deactivation_threshold, current_swappiness,
+      lst_scnd_act_threshold;
   int last_swappiness = read_swappiness(), new_swappiness = last_swappiness;
-  int lst_scnd_act_threshold;
   int wait_timeout = SWAP_DEACTIVATION_TIME * 60;
   bool unbounded = true, no_pressure = false, scnd_log = true;
   bool is_swapoff_session = false, is_condition_met, is_very_low_usage;
