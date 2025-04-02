@@ -83,7 +83,7 @@ done
 
 # Give time for lmkd to adjust
 rm_prop sys.lmk.minfree_levels
-sleep 5m
+sleep 2m
 
 ### Start Services ###
 $MODPATH/fmiop_service.sh

@@ -637,24 +637,23 @@ setup_swap() {
 apply_uffd_gc() {
 	uprint " 
 - Apllying UFFC GC tweak
-
   What are these GCs (garbage collection)? Basically, they are Garbage
   Collectors focused on freeing up memory pages. The focus of these GCs
   is to minimize page faults and leave the memory clean enough to generate
   benefits such as ZRAM compression, preventing it from being overused and
   generating a much more efficient ZRAM by having cleaner memory to compress.
 
-	Thanks to @WeirdMidas in github issue for suggestion
+  Thanks to @WeirdMidas in github issue for suggestion
   -> (https://github.com/lululoid/LMKD-PSI-Activator/issues/17)
 	"
 
 	if cmd device_config put runtime_native_boot enable_uffd_gc_2 true; then
-		uprint "  - UFFD GC V2 is activated.
+		uprint "- UFFD GC V2 is activated.
 "
 		loger "UFFD GC V2 is activated."
 	else
 		resetprop ro.dalvik.vm.enable_uffd_gc && resetprop ro.dalvik.vm.enable_uffd_gc true && {
-			uprint "  - UFFD GC V1 is activated.
+			uprint "- UFFD GC V1 is activated.
 " || loger "UFFD GC V1 is activated."
 		}
 	fi

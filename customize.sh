@@ -78,8 +78,7 @@ EOF
 	rm_prop sys.lmk.minfree_levels
 	approps $MODPATH/system.prop
 	uprint "
-- LMKD PSI mode activated
-  RAM is better utilized with something useful than left unused"
+- LMKD PSI mode activated."
 }
 
 apply_touch_issue_workaround() {
@@ -138,8 +137,7 @@ to Android 10+"
 "
 
 		apply_touch_issue_workaround
-		echo "
-- Applying lowmemorykiller properties"
+		echo "- Applying lowmemorykiller properties"
 		lmkd_apply
 		$MODPATH/log_service.sh
 		$MODPATH/fmiop_service.sh
@@ -162,7 +160,7 @@ update_config() {
 		cp $current_config $CONFIG_INTERNAL
 		cp $current_config $CONFIG_FILE
 		ui_print "
-- Config is located at $CONFIG_FILE"
+- Config is located at $CONFIG_INTERNAL"
 		please_reboot=true
 	elif [ "$(echo "$last_config_v 0.5" | awk '{print ($1 <= $2) ? 1 : 0}')" -eq 1 ]; then
 		mkdir -p $FMIOP_DIR
@@ -179,7 +177,7 @@ update_config() {
 	[ $config_ready ] &&
 		uprint "
 ! Config is replaced with newer one. Backup $current_config.old created
-  Config is located at $CONFIG_FILE"
+  Config is located at $CONFIG_INTERNAL"
 	[ $please_reboot ] &&
 		uprint "
 - REBOOT now"
