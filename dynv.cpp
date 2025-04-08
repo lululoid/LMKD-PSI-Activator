@@ -457,6 +457,31 @@ bool is_sleep_mode() {
   return (result.find("mWakefulness=Asleep") != string::npos);
 }
 
+bool is_boot_wait() {
+  ifstream file(LOG_FOLDER + "/.boot_wait");
+  string line;
+
+  if (!file.is_open()) {
+    ALOGE(".boot_wait file is not exists.");
+    return false;
+  }
+
+  while (getline(file, line)) {
+    if (line.find("true") != string::npos) {
+      ALOGI("Waiting for a while for lmkd to adjust.");
+      return true;
+    }
+  }
+
+  return false;
+}
+
+void set_boot_wait(const string &value) {
+  ofstream outfile(LOG_FOLDER + ".boot_wait");
+  outfile << value;
+  outfile.close();
+}
+
 /**
  * Dynamic swappiness adjustment service.
  */
@@ -494,11 +519,15 @@ void dyn_swap_service() {
   pair<int, int> lst_swap_usage, sc_prev_swap_usg;
   int activation_threshold, deactivation_threshold, lst_scnd_act_threshold;
   int last_swappiness = read_swappiness(), new_swappiness = SWAPPINESS_MIN;
-  int wait_timeout = SWAP_DEACTIVATION_TIME * 60;
+  int wait_timeout = SWAP_DEACTIVATION_TIME * 60, boot_wait = 300;
   bool unbounded = true, no_pressure = false, scnd_log = true;
   bool is_swapoff_session = false, is_condition_met, is_very_low_usage;
   vector<thread> swapoff_thread;
   vector<string> *current_avs;
+
+  if (!is_boot_wait()) {
+    boot_wait = 0;
+  }
 
   while (running) {
     double memory_metric = read_pressure("memory", "some", "avg60");
@@ -542,13 +571,20 @@ void dyn_swap_service() {
       is_swapoff_session = false;
     }
 
-    if (new_swappiness != last_swappiness) {
-      if (abs(last_swappiness - new_swappiness) >= SWAPPINESS_APPLY_STEP ||
-          new_swappiness == SWAPPINESS_MIN ||
-          new_swappiness == SWAPPINESS_MAX) {
-        ALOGI("Swappiness -> %d", new_swappiness);
-        last_swappiness = new_swappiness;
-        write_swappiness(new_swappiness);
+    if (boot_wait == 0) {
+      if (new_swappiness != last_swappiness) {
+        if (abs(last_swappiness - new_swappiness) >= SWAPPINESS_APPLY_STEP ||
+            new_swappiness == SWAPPINESS_MIN ||
+            new_swappiness == SWAPPINESS_MAX) {
+          ALOGI("Swappiness -> %d", new_swappiness);
+          last_swappiness = new_swappiness;
+          write_swappiness(new_swappiness);
+        }
+      }
+    } else if (boot_wait > 0) {
+      boot_wait--;
+      if (boot_wait == 0) {
+        set_boot_wait("false");
       }
     }
 
@@ -626,7 +662,7 @@ void dyn_swap_service() {
             }
           } catch (const out_of_range &e) {
             if (scnd_log) {
-              ALOGE("No second last swap.");
+              ALOGW("No second last swap.");
               scnd_log = false;
             }
           }

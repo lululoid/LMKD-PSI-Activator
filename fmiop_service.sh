@@ -11,7 +11,7 @@ get_config_checksum() {
 		md5sum "$CONFIG_INTERNAL" 2>/dev/null | awk '{print $1}' || echo "no_hash"
 		return 0
 	else
-		loger "missing config"
+		[ -e $FMIOP_DIR ] && loger "Config: $CONFIG_INTERNAL missing."
 	fi
 
 	return 1

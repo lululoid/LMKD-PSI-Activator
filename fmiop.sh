@@ -567,7 +567,7 @@ make_swap() {
 
 start_services() {
 	pressure_reporter_service
-	$MODPATH/system/bin/dynv &
+	su -c $MODPATH/system/bin/dynv &
 	loger "Started dyn_swap_service with PID $!"
 }
 

@@ -45,12 +45,6 @@ loger "===REBOOT START FROM HERE==="
 turnoff_zram /dev/block/zram0
 remove_zram 0 && loger "Successfully removed /dev/block/zram0"
 
-### Wait for Boot Completion ###
-# Loop until sys.boot_completed is 1, checking every 5 seconds
-until [ "$(resetprop sys.boot_completed)" -eq 1 ]; do
-	sleep 5
-done
-
 $MODPATH/log_service.sh
 
 VIR_E=$(read_config ".virtual_memory.enable" false)
@@ -81,9 +75,7 @@ available_space=$TOTALMEM
 	[ $TOTALMEM_GB -gt 20 ] && break
 done
 
-# Give time for lmkd to adjust
-rm_prop sys.lmk.minfree_levels
-sleep 2m
+echo "true" >$LOG_FOLDER/.boot_wait
 
 ### Start Services ###
 $MODPATH/fmiop_service.sh
