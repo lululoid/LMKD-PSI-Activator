@@ -354,26 +354,30 @@ pair<int, int> get_swap_usage(const string &device) {
   return {used_mb, used_percentage}; // Return {used MB, percentage}
 }
 
-int get_lscount(int threshold) {
+pair<string, vector<string>> get_lusg_swaps(int threshold) {
   string line;
   ifstream proc_file(SWAP_PROC_FILE);
-  int low_swap_count = 0;
+  vector<string> low_usage_swaps;
+  string last_nl_swap;
 
   getline(proc_file, line); // Skip header line
 
   int used = 0;
+  string device;
   while (getline(proc_file, line)) {
     istringstream iss(line);
     string temp;
-    iss >> temp >> temp >> temp >> used;
+    iss >> device >> temp >> temp >> used;
     int used_mb = (used / 1024);
 
     if (used_mb < threshold) {
-      low_swap_count++;
+      low_usage_swaps.push_back(device);
+    } else {
+      last_nl_swap = device;
     }
   }
 
-  return low_swap_count;
+  return {last_nl_swap, low_usage_swaps};
 }
 
 int get_memory_pressure() {
@@ -515,15 +519,16 @@ void dyn_swap_service() {
   vector<string> active_swaps = get_active_swap();
   pair<vector<string>, vector<string>> available_swaps = get_available_swap();
   string swap_type = "zram";
-  string last_active_swap, scnd_lst_swap, next_swap, first_swap;
-  pair<int, int> lst_swap_usage, sc_prev_swap_usg;
-  int activation_threshold, deactivation_threshold, lst_scnd_act_threshold;
+  string last_active_swap, last_nl_swap, next_swap, first_swap;
+  pair<int, int> lst_swap_usage, nl_prev_swap_usg;
+  pair<string, vector<string>> nes_info;
+  int activation_threshold, deactivation_threshold, lst_nl_act_threshold;
   int last_swappiness = read_swappiness(), new_swappiness = SWAPPINESS_MIN;
   int wait_timeout = SWAP_DEACTIVATION_TIME * 60, boot_wait = 300;
   bool unbounded = true, no_pressure = false, scnd_log = true;
-  bool is_swapoff_session = false, is_condition_met, is_very_low_usage;
+  bool is_swapoff_session = false, is_condition_met;
   vector<thread> swapoff_thread;
-  vector<string> *current_avs;
+  vector<string> *current_avs, low_usag, low_usage_swaps;
 
   if (!is_boot_wait()) {
     boot_wait = 0;
@@ -632,19 +637,18 @@ void dyn_swap_service() {
           }
         } else {
           try {
-            scnd_lst_swap = active_swaps.at(active_swaps.size() - 2);
-            lst_scnd_act_threshold =
-                (scnd_lst_swap.find(SWAP_FILE) != string::npos)
+            nes_info = get_lusg_swaps(10);
+            low_usage_swaps = nes_info.second;
+            last_nl_swap = nes_info.first;
+            lst_nl_act_threshold =
+                (last_nl_swap.find(SWAP_FILE) != string::npos)
                     ? SWAP_ACTIVATION_THRESHOLD
                     : ZRAM_ACTIVATION_THRESHOLD;
-            sc_prev_swap_usg = get_swap_usage(scnd_lst_swap);
+            nl_prev_swap_usg = get_swap_usage(last_nl_swap);
             is_condition_met =
-                (sc_prev_swap_usg.second < lst_scnd_act_threshold &&
+                (nl_prev_swap_usg.second < lst_nl_act_threshold &&
                  lst_swap_usage.first < deactivation_threshold) &&
                 is_swapoff_session;
-            is_very_low_usage =
-                (sc_prev_swap_usg.second < lst_scnd_act_threshold &&
-                 lst_swap_usage.first < 10);
 
             if (is_condition_met) {
               ALOGI("Device sleep more than %d minutes. Deactivating swap...",
@@ -653,12 +657,13 @@ void dyn_swap_service() {
                                           ref(available_swaps),
                                           ref(active_swaps));
               active_swaps.pop_back();
-            } else if (is_very_low_usage) {
+            } else if (!low_usage_swaps.empty()) {
               ALOGI("Low swap usage detected...");
-              swapoff_thread.emplace_back(swapoff_th, last_active_swap,
-                                          ref(available_swaps),
-                                          ref(active_swaps));
-              active_swaps.pop_back();
+              for (auto swap : low_usage_swaps) {
+                swapoff_thread.emplace_back(
+                    swapoff_th, swap, ref(available_swaps), ref(active_swaps));
+                active_swaps.pop_back();
+              }
             }
           } catch (const out_of_range &e) {
             if (scnd_log) {
