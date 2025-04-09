@@ -358,8 +358,8 @@ pair<pair<string, int>, vector<string>> get_lusg_swaps(int threshold) {
   string line;
   ifstream proc_file(SWAP_PROC_FILE);
   vector<string> low_usage_swaps;
-  pair<string, int> last_nl_swap;
-  int low_swaps_count = 0;
+  pair<string, int> last_nl_swap = {"", 0}; // initialize it with 0
+  int &low_swaps_count = last_nl_swap.second;
 
   getline(proc_file, line); // Skip header line
 
@@ -372,14 +372,13 @@ pair<pair<string, int>, vector<string>> get_lusg_swaps(int threshold) {
     int used_mb = (used / 1024);
 
     if (used_mb < threshold) {
+      last_nl_swap.first = device;
+    } else if (used_mb < 10) {
       low_usage_swaps.push_back(device);
       low_swaps_count++;
-    } else {
-      last_nl_swap.first = device;
     }
   }
 
-  last_nl_swap.second = low_swaps_count;
   return {last_nl_swap, low_usage_swaps};
 }
 
@@ -475,7 +474,6 @@ bool is_boot_wait() {
 
   while (getline(file, line)) {
     if (line.find("true") != string::npos) {
-      ALOGI("Waiting for a while for lmkd to adjust.");
       return true;
     }
   }
@@ -484,14 +482,16 @@ bool is_boot_wait() {
 }
 
 void set_boot_wait(const string &value) {
-  ofstream outfile(LOG_FOLDER + ".boot_wait");
+  ofstream outfile(LOG_FOLDER + "/.boot_wait");
   outfile << value;
   outfile.close();
 }
 
 void do_wait(int value) {
+  ALOGI("Waiting for a while for lmkd to adjust.");
   this_thread::sleep_for(chrono::seconds(value));
   set_boot_wait("false");
+  ALOGI("Waited %d second. Dynamic swappiness active now.", value);
 }
 
 /**
@@ -534,7 +534,7 @@ void dyn_swap_service() {
       low_nl_count;
   int last_swappiness = read_swappiness(), new_swappiness = SWAPPINESS_MIN;
   int wait_timeout = SWAP_DEACTIVATION_TIME * 60;
-  bool unbounded = true, no_pressure = false, scnd_log = true;
+  bool unbounded = true, no_pressure = false;
   bool is_swapoff_session = false, is_condition_met, ls_condition;
   vector<thread> swapoff_thread;
   vector<string> *current_avs, low_usage_swaps;
@@ -636,42 +636,33 @@ void dyn_swap_service() {
             ALOGE("Failed to activate swap: %s", next_swap.c_str());
           }
         } else {
-          try {
-            nes_info = get_lusg_swaps(10);
-            low_usage_swaps = nes_info.second;
-            last_nl_swap = nes_info.first.first;
-            low_nl_count = nes_info.first.second;
-            lst_nl_act_threshold =
-                (last_nl_swap.find(SWAP_FILE) != string::npos)
-                    ? SWAP_ACTIVATION_THRESHOLD
-                    : ZRAM_ACTIVATION_THRESHOLD;
-            nl_prev_swap_usg = get_swap_usage(last_nl_swap);
-            is_condition_met =
-                (nl_prev_swap_usg.second < lst_nl_act_threshold &&
-                 lst_swap_usage.first < deactivation_threshold) &&
-                is_swapoff_session;
-            ls_condition = (nl_prev_swap_usg.second < lst_nl_act_threshold &&
-                            low_nl_count > 1);
+          nes_info = get_lusg_swaps(10);
+          low_usage_swaps = nes_info.second;
+          last_nl_swap = nes_info.first.first;
+          low_nl_count = nes_info.first.second;
+          lst_nl_act_threshold = (last_nl_swap.find(SWAP_FILE) != string::npos)
+                                     ? SWAP_ACTIVATION_THRESHOLD
+                                     : ZRAM_ACTIVATION_THRESHOLD;
+          nl_prev_swap_usg = get_swap_usage(last_nl_swap);
+          is_condition_met = (nl_prev_swap_usg.second < lst_nl_act_threshold &&
+                              lst_swap_usage.first < deactivation_threshold) &&
+                             is_swapoff_session;
+          ls_condition = (nl_prev_swap_usg.second < lst_nl_act_threshold &&
+                          low_nl_count > 1);
 
-            if (is_condition_met) {
-              ALOGI("Device sleep more than %d minutes. Deactivating swap...",
-                    SWAP_DEACTIVATION_TIME);
-              swapoff_thread.emplace_back(swapoff_th, last_active_swap,
-                                          ref(available_swaps),
-                                          ref(active_swaps));
+          if (is_condition_met) {
+            ALOGI("Device sleep more than %d minutes. Deactivating swap...",
+                  SWAP_DEACTIVATION_TIME);
+            swapoff_thread.emplace_back(swapoff_th, last_active_swap,
+                                        ref(available_swaps),
+                                        ref(active_swaps));
+            active_swaps.pop_back();
+          } else if (ls_condition) {
+            ALOGI("Low swap usage detected...");
+            for (auto swap : low_usage_swaps) {
+              swapoff_thread.emplace_back(
+                  swapoff_th, swap, ref(available_swaps), ref(active_swaps));
               active_swaps.pop_back();
-            } else if (ls_condition) {
-              ALOGI("Low swap usage detected...");
-              for (auto swap : low_usage_swaps) {
-                swapoff_thread.emplace_back(
-                    swapoff_th, swap, ref(available_swaps), ref(active_swaps));
-                active_swaps.pop_back();
-              }
-            }
-          } catch (const out_of_range &e) {
-            if (scnd_log) {
-              ALOGW("No second last swap.");
-              scnd_log = false;
             }
           }
         }
@@ -801,6 +792,7 @@ int main() {
 
   if (is_boot_wait()) {
     thread boot_waiting(do_wait, 180);
+    boot_waiting.detach();
   }
   thread adjust_thread(dyn_swap_service);
   thread fmiop_thread(fmiop);
