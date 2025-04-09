@@ -354,11 +354,12 @@ pair<int, int> get_swap_usage(const string &device) {
   return {used_mb, used_percentage}; // Return {used MB, percentage}
 }
 
-pair<string, vector<string>> get_lusg_swaps(int threshold) {
+pair<pair<string, int>, vector<string>> get_lusg_swaps(int threshold) {
   string line;
   ifstream proc_file(SWAP_PROC_FILE);
   vector<string> low_usage_swaps;
-  string last_nl_swap;
+  pair<string, int> last_nl_swap;
+  int low_swaps_count = 0;
 
   getline(proc_file, line); // Skip header line
 
@@ -372,11 +373,13 @@ pair<string, vector<string>> get_lusg_swaps(int threshold) {
 
     if (used_mb < threshold) {
       low_usage_swaps.push_back(device);
+      low_swaps_count++;
     } else {
-      last_nl_swap = device;
+      last_nl_swap.first = device;
     }
   }
 
+  last_nl_swap.second = low_swaps_count;
   return {last_nl_swap, low_usage_swaps};
 }
 
@@ -486,6 +489,11 @@ void set_boot_wait(const string &value) {
   outfile.close();
 }
 
+void do_wait(int value) {
+  this_thread::sleep_for(chrono::seconds(value));
+  set_boot_wait("false");
+}
+
 /**
  * Dynamic swappiness adjustment service.
  */
@@ -521,18 +529,15 @@ void dyn_swap_service() {
   string swap_type = "zram";
   string last_active_swap, last_nl_swap, next_swap, first_swap;
   pair<int, int> lst_swap_usage, nl_prev_swap_usg;
-  pair<string, vector<string>> nes_info;
-  int activation_threshold, deactivation_threshold, lst_nl_act_threshold;
+  pair<pair<string, int>, vector<string>> nes_info;
+  int activation_threshold, deactivation_threshold, lst_nl_act_threshold,
+      low_nl_count;
   int last_swappiness = read_swappiness(), new_swappiness = SWAPPINESS_MIN;
-  int wait_timeout = SWAP_DEACTIVATION_TIME * 60, boot_wait = 300;
+  int wait_timeout = SWAP_DEACTIVATION_TIME * 60;
   bool unbounded = true, no_pressure = false, scnd_log = true;
-  bool is_swapoff_session = false, is_condition_met;
+  bool is_swapoff_session = false, is_condition_met, ls_condition;
   vector<thread> swapoff_thread;
-  vector<string> *current_avs, low_usag, low_usage_swaps;
-
-  if (!is_boot_wait()) {
-    boot_wait = 0;
-  }
+  vector<string> *current_avs, low_usage_swaps;
 
   while (running) {
     double memory_metric = read_pressure("memory", "some", "avg60");
@@ -576,7 +581,7 @@ void dyn_swap_service() {
       is_swapoff_session = false;
     }
 
-    if (boot_wait == 0) {
+    if (!is_boot_wait()) {
       if (new_swappiness != last_swappiness) {
         if (abs(last_swappiness - new_swappiness) >= SWAPPINESS_APPLY_STEP ||
             new_swappiness == SWAPPINESS_MIN ||
@@ -585,11 +590,6 @@ void dyn_swap_service() {
           last_swappiness = new_swappiness;
           write_swappiness(new_swappiness);
         }
-      }
-    } else if (boot_wait > 0) {
-      boot_wait--;
-      if (boot_wait == 0) {
-        set_boot_wait("false");
       }
     }
 
@@ -639,7 +639,8 @@ void dyn_swap_service() {
           try {
             nes_info = get_lusg_swaps(10);
             low_usage_swaps = nes_info.second;
-            last_nl_swap = nes_info.first;
+            last_nl_swap = nes_info.first.first;
+            low_nl_count = nes_info.first.second;
             lst_nl_act_threshold =
                 (last_nl_swap.find(SWAP_FILE) != string::npos)
                     ? SWAP_ACTIVATION_THRESHOLD
@@ -649,6 +650,8 @@ void dyn_swap_service() {
                 (nl_prev_swap_usg.second < lst_nl_act_threshold &&
                  lst_swap_usage.first < deactivation_threshold) &&
                 is_swapoff_session;
+            ls_condition = (nl_prev_swap_usg.second < lst_nl_act_threshold &&
+                            low_nl_count > 1);
 
             if (is_condition_met) {
               ALOGI("Device sleep more than %d minutes. Deactivating swap...",
@@ -657,7 +660,7 @@ void dyn_swap_service() {
                                           ref(available_swaps),
                                           ref(active_swaps));
               active_swaps.pop_back();
-            } else if (!low_usage_swaps.empty()) {
+            } else if (ls_condition) {
               ALOGI("Low swap usage detected...");
               for (auto swap : low_usage_swaps) {
                 swapoff_thread.emplace_back(
@@ -796,6 +799,9 @@ int main() {
   ALOGI("Current PID: %d", current_pid);
   save_pid("dyn_swap_service", current_pid);
 
+  if (is_boot_wait()) {
+    thread boot_waiting(do_wait, 180);
+  }
   thread adjust_thread(dyn_swap_service);
   thread fmiop_thread(fmiop);
 
