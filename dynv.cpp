@@ -412,8 +412,7 @@ void remove_element(const string &element, vector<T> *elements) {
 
 // Function to perform swapoff on a single device
 void swapoff_th(const string &device,
-                pair<vector<string>, vector<string>> &available_swaps,
-                vector<string> &active_swaps) {
+                pair<vector<string>, vector<string>> &available_swaps) {
   lock_guard<mutex> lock(swapoff_tracker_mutex);
 
   if (swapoff(device.c_str()) == 0) {
@@ -424,21 +423,19 @@ void swapoff_th(const string &device,
       available_swaps.second.push_back(device);
     }
     remove_element(device, &swapoff_tracker);
-    active_swaps.pop_back();
   }
 }
 
 void swapoff_(const string &device,
               pair<vector<string>, vector<string>> &available_swaps,
-              vector<string> &active_swaps, vector<thread> &threads) {
+              vector<thread> &threads) {
   lock_guard<mutex> lock(swapoff_tracker_mutex);
   bool cntn_the_swap = contains(device, swapoff_tracker);
 
   if (!cntn_the_swap) {
     ALOGI("[THREAD] Swapoff: %s", device.c_str());
     swapoff_tracker.push_back(device);
-    threads.emplace_back(swapoff_th, device, ref(available_swaps),
-                         ref(active_swaps));
+    threads.emplace_back(swapoff_th, device, ref(available_swaps));
   }
 }
 
@@ -618,11 +615,11 @@ void dyn_swap_service() {
     }
 
     if (unbounded) {
+      active_swaps = get_active_swap();
       // If there's no swap turn on first swap
       if (active_swaps.empty()) {
         if (!current_avs->empty()) {
           first_swap = current_avs->back();
-          active_swaps.push_back(first_swap);
           current_avs->pop_back();
 
           if ((swapon(first_swap.c_str(), 0)) == 0) {
@@ -646,7 +643,6 @@ void dyn_swap_service() {
 
         if (lst_swap_usage.second > activation_threshold) {
           next_swap = current_avs->back();
-          active_swaps.push_back(next_swap);
           current_avs->pop_back();
 
           if ((swapon(next_swap.c_str(), 0)) == 0) {
@@ -673,12 +669,11 @@ void dyn_swap_service() {
             if (is_condition_met) {
               ALOGI("Device sleep more than %d minutes. Deactivating swap...",
                     SWAP_DEACTIVATION_TIME);
-              swapoff_(last_active_swap, available_swaps, active_swaps,
-                       swapoff_thread);
+              swapoff_(last_active_swap, available_swaps, swapoff_thread);
             } else if (kill_low_swap) {
               ALOGI("Low swap usage detected...");
               for (auto swap : low_usage_swaps) {
-                swapoff_(swap, available_swaps, active_swaps, swapoff_thread);
+                swapoff_(swap, available_swaps, swapoff_thread);
               }
             }
           } catch (const out_of_range &e) {
