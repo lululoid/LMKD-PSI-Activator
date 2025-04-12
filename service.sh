@@ -75,8 +75,6 @@ available_space=$TOTALMEM
 	[ $TOTALMEM_GB -gt 20 ] && break
 done
 
-echo "true" >$LOG_FOLDER/.boot_wait
-
 ### Start Services ###
 $MODPATH/fmiop_service.sh
 loger "fmiop started"

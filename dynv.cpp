@@ -414,6 +414,8 @@ void remove_element(const string &element, vector<T> *elements) {
 void swapoff_th(const string &device,
                 pair<vector<string>, vector<string>> &available_swaps,
                 vector<string> &active_swaps) {
+  lock_guard<mutex> lock(swapoff_tracker_mutex);
+
   if (swapoff(device.c_str()) == 0) {
     ALOGI("Swap: %s is turned off.", device.c_str());
     if (device.find("zram") != string::npos) {
@@ -431,10 +433,10 @@ void swapoff_(const string &device,
               vector<string> &active_swaps, vector<thread> &threads) {
   lock_guard<mutex> lock(swapoff_tracker_mutex);
   bool cntn_the_swap = contains(device, swapoff_tracker);
-  swapoff_tracker.push_back(device);
 
   if (!cntn_the_swap) {
     ALOGI("[THREAD] Swapoff: %s", device.c_str());
+    swapoff_tracker.push_back(device);
     threads.emplace_back(swapoff_th, device, ref(available_swaps),
                          ref(active_swaps));
   }
@@ -599,15 +601,13 @@ void dyn_swap_service() {
       is_swapoff_session = false;
     }
 
-    if (!is_boot_wait()) {
-      if (new_swappiness != last_swappiness) {
-        if (abs(last_swappiness - new_swappiness) >= SWAPPINESS_APPLY_STEP ||
-            new_swappiness == SWAPPINESS_MIN ||
-            new_swappiness == SWAPPINESS_MAX) {
-          ALOGI("Swappiness -> %d", new_swappiness);
-          last_swappiness = new_swappiness;
-          write_swappiness(new_swappiness);
-        }
+    if (new_swappiness != last_swappiness) {
+      if (abs(last_swappiness - new_swappiness) >= SWAPPINESS_APPLY_STEP ||
+          new_swappiness == SWAPPINESS_MIN ||
+          new_swappiness == SWAPPINESS_MAX) {
+        ALOGI("Swappiness -> %d", new_swappiness);
+        last_swappiness = new_swappiness;
+        write_swappiness(new_swappiness);
       }
     }
 
@@ -812,10 +812,6 @@ int main() {
   ALOGI("Current PID: %d", current_pid);
   save_pid("dyn_swap_service", current_pid);
 
-  if (is_boot_wait()) {
-    thread boot_waiting(do_wait, 180);
-    boot_waiting.detach();
-  }
   thread adjust_thread(dyn_swap_service);
   thread fmiop_thread(fmiop);
 
