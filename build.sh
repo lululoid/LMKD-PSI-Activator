@@ -83,7 +83,8 @@ generate_changelog() {
 	local changelog_file="fmiop-v${version}_${versionCode}-changelog.md"
 	local message="
 📣 For more updates and discussions about bugs, features, etc.,
-join our Telegram channel: [**Initechzer0**](https://t.me/initentangtech)"
+join our ⌯⌲ Telegram channel: [**Initechzer0**](https://t.me/initentangtech)
+or our ⌯⌲ Telegram group: [**Initechzer0 Chat**](https://t.me/+ff5HBVsV8gsxODk1)."
 
 	# Remove previous changelogs
 	rm -f fmiop-v*-changelog.md

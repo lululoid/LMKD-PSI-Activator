@@ -71,8 +71,6 @@ available_space=$TOTALMEM
 		remove_zram 0
 		add_zram
 	fi
-
-	[ $TOTALMEM_GB -gt 20 ] && break
 done
 
 ### Start Services ###

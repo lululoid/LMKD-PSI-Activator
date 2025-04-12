@@ -3,7 +3,8 @@
 # save full logging
 NVBASE=/data/adb
 BIN=/system/bin
-MODPATH=$PWD
+[ -e $NVBASE/modules/fmiop ] && MODPATH=$NVBASE/modules/fmiop
+[ -e $NVBASE/modules_update/fmiop ] && MODPATH=$NVBASE/modules_update/fmiop
 LOG_FOLDER="$NVBASE/fmiop" # Directory for fmiop logs
 script_name=$(basename $0)
 LOG="$LOG_FOLDER/${script_name%.sh}.log" # Main log file
