@@ -1,8 +1,8 @@
-config_version: 0.6
+config_version: 0.7
 dynamic_swappiness:
   swappiness_range:
     max: 100
-    min: 80
+    min: 60
   threshold:
     cpu_pressure: 40
     memory_pressure: 15
@@ -15,7 +15,7 @@ virtual_memory:
   deactivate_in_sleep: true
   wait_timeout: 10
   zram:
-    activation_threshold: 75
+    activation_threshold: 80
     deactivation_threshold: 55
   swap:
     activation_threshold: 90

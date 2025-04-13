@@ -174,7 +174,7 @@ update_config() {
 		ui_print "
 - Config is located at $CONFIG_INTERNAL"
 		please_reboot=true
-	elif [ "$(echo "$last_config_v 0.5" | awk '{print ($1 <= $2) ? 1 : 0}')" -eq 1 ]; then
+	elif [ "$(echo "$last_config_v 0.6" | awk '{print ($1 <= $2) ? 1 : 0}')" -eq 1 ]; then
 		mkdir -p $FMIOP_DIR
 		cp $CONFIG_INTERNAL $CONFIG_INTERNAL.old
 		cp $current_config $CONFIG_INTERNAL
