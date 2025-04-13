@@ -10,6 +10,7 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -39,8 +40,9 @@ extern void dyn_swap_service();
 extern void fmiop();
 
 atomic<bool> running(true);
-vector<string> swapoff_tracker;
-mutex swapoff_tracker_mutex;
+vector<string> swapoff_tracker, active_swaps;
+mutex safe_thread_mutex;
+pair<vector<string>, vector<string>> available_swaps;
 const string fmiop_dir = "/sdcard/Android/fmiop";
 const string NVBASE = "/data/adb";
 const string LOG_FOLDER = NVBASE + "/" + LOG_TAG;
@@ -347,7 +349,12 @@ pair<int, int> get_swap_usage(const string &device) {
   }
 
   if (size == 0) {
+    lock_guard<mutex> lock(safe_thread_mutex);
+    active_swaps = get_active_swap();
+    available_swaps = get_available_swap();
+
     ALOGE("Error: Could not determine size of %s", device.c_str());
+
     return {0, -1}; // Return -1% to indicate error
   }
 
@@ -406,36 +413,43 @@ bool contains(const string &value, vector<T> &vector_data) {
 
 template <typename T>
 void remove_element(const string &element, vector<T> *elements) {
+  lock_guard<mutex> lock(safe_thread_mutex);
   elements->erase(remove(elements->begin(), elements->end(), element),
                   elements->end());
 }
 
-// Function to perform swapoff on a single device
-void swapoff_th(const string &device,
-                pair<vector<string>, vector<string>> &available_swaps) {
-  lock_guard<mutex> lock(swapoff_tracker_mutex);
+template <typename T>
+void safe_push_back(const string &value, vector<T> &elements) {
+  lock_guard<mutex> lock(safe_thread_mutex);
+  elements.push_back(value);
+}
 
+// Function to perform swapoff on a single device
+void swapoff_th(const string &device) {
   if (swapoff(device.c_str()) == 0) {
     ALOGI("Swap: %s is turned off.", device.c_str());
     if (device.find("zram") != string::npos) {
-      available_swaps.first.push_back(device);
+      safe_push_back(device, available_swaps.first);
     } else {
-      available_swaps.second.push_back(device);
+      safe_push_back(device, available_swaps.second);
     }
     remove_element(device, &swapoff_tracker);
+    remove_element(device, &active_swaps);
+  } else {
+    remove_element(device, &swapoff_tracker);
+    ALOGE("Failed: Turn off %s", device.c_str());
   }
 }
 
-void swapoff_(const string &device,
-              pair<vector<string>, vector<string>> &available_swaps,
-              vector<thread> &threads) {
-  lock_guard<mutex> lock(swapoff_tracker_mutex);
+void swapoff_(const string &device, vector<thread> &threads) {
   bool cntn_the_swap = contains(device, swapoff_tracker);
 
   if (!cntn_the_swap) {
     ALOGI("[THREAD] Swapoff: %s", device.c_str());
-    swapoff_tracker.push_back(device);
-    threads.emplace_back(swapoff_th, device, ref(available_swaps));
+    safe_push_back(device, swapoff_tracker);
+    threads.emplace_back(swapoff_th, device);
+  } else {
+    ALOGE("Swapoff: %s is in progress...", device.c_str());
   }
 }
 
@@ -543,8 +557,8 @@ void dyn_swap_service() {
   bool DEACTIVATE_IN_SLEEP =
       read_config(".virtual_memory.deactivate_in_sleep", true);
 
-  vector<string> active_swaps = get_active_swap();
-  pair<vector<string>, vector<string>> available_swaps = get_available_swap();
+  active_swaps = get_active_swap();
+  available_swaps = get_available_swap();
   string swap_type = "zram";
   string last_active_swap, scnd_lst_swap, next_swap, first_swap;
   pair<int, int> lst_swap_usage, sc_prev_swap_usg;
@@ -615,17 +629,19 @@ void dyn_swap_service() {
     }
 
     if (unbounded) {
-      active_swaps = get_active_swap();
       // If there's no swap turn on first swap
       if (active_swaps.empty()) {
         if (!current_avs->empty()) {
           first_swap = current_avs->back();
-          current_avs->pop_back();
 
           if ((swapon(first_swap.c_str(), 0)) == 0) {
+            safe_push_back(first_swap, active_swaps);
+            current_avs->pop_back();
+
             ALOGI("SWAP: %s turned on.", first_swap.c_str());
           } else {
             ALOGE("Failed to activate swap: %s", first_swap.c_str());
+            available_swaps = get_available_swap();
           }
         }
       } else {
@@ -643,9 +659,11 @@ void dyn_swap_service() {
 
         if (lst_swap_usage.second > activation_threshold) {
           next_swap = current_avs->back();
-          current_avs->pop_back();
 
           if ((swapon(next_swap.c_str(), 0)) == 0) {
+            safe_push_back(next_swap, active_swaps);
+            current_avs->pop_back();
+
             ALOGI("SWAP: %s turned on", next_swap.c_str());
           } else {
             ALOGE("Failed to activate swap: %s", next_swap.c_str());
@@ -669,11 +687,11 @@ void dyn_swap_service() {
             if (is_condition_met) {
               ALOGI("Device sleep more than %d minutes. Deactivating swap...",
                     SWAP_DEACTIVATION_TIME);
-              swapoff_(last_active_swap, available_swaps, swapoff_thread);
+              swapoff_(last_active_swap, swapoff_thread);
             } else if (kill_low_swap) {
               ALOGI("Low swap usage detected...");
               for (auto swap : low_usage_swaps) {
-                swapoff_(swap, available_swaps, swapoff_thread);
+                swapoff_(swap, swapoff_thread);
               }
             }
           } catch (const out_of_range &e) {

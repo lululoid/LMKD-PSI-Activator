@@ -22,8 +22,6 @@ while true; do
 		set -x
 
 		logcat -v time fmiop:V '*:S' >>"$LOG_FOLDER/dynv.log" 2>&1
-		new_pid=$!
-		save_pid "fmiop.dynamic_swappiness_logger.pid" "$new_pid"
 
 		exec 3>&-
 		set +x
