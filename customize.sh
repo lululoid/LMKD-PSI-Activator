@@ -121,6 +121,18 @@ EOF
 	set -x
 }
 
+is_arm64() {
+	arch=$(uname -m)
+	case "$arch" in
+	aarch64 | arm64)
+		return 0 # true
+		;;
+	*)
+		return 1 # false
+		;;
+	esac
+}
+
 main() {
 	local android_version miui_v_code
 	android_version=$(getprop ro.build.version.release)
@@ -194,6 +206,10 @@ if [ -e "$NVBASE/modules/$TAG" ]; then
 	cp $MODPATH/action.sh $MOD_DIR
 	cp $MODPATH/fmiop.sh $MOD_DIR
 	$BIN/cp -rf $MODPATH/tools $MOD_DIR
+fi
+
+if ! is_arm64; then
+	abort "🐢 Nope. This device is not ARM64. Aborting..."
 fi
 
 setup_swap
