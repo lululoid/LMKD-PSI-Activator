@@ -70,6 +70,8 @@ available_space=$TOTALMEM
 	if [ -z "$zram_id" ]; then
 		remove_zram 0
 		add_zram
+		resize_zram $TOTALMEM 0
+		break
 	fi
 done
 

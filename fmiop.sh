@@ -427,7 +427,9 @@ archive_service() {
 	local source_dirs="/data/adb/fmiop /sdcard/Android/fmiop" # Directories to archive
 	local interval=300                                        # 5 minutes in seconds
 	local max_archives=5                                      # Maximum number of archives to keep
-	local timestamp tar_output archive_file
+	local timestamp archive_file
+	local last_dir
+	last_dir=$(pwd)
 
 	# Ensure archive directory exists
 	mkdir -p "$archive_dir" || {
@@ -451,6 +453,7 @@ archive_service() {
 		cp -r /data/adb/fmiop/* "$tmp_dir/"
 		cp /sdcard/Android/fmiop/config.yaml "$tmp_dir/"
 
+		cd $last_dir || cd $MODPATH || return
 		tar -czf "$archive_file" "$tmp_dir"
 
 		loger "Archived -> $archive_file"

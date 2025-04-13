@@ -448,8 +448,6 @@ void swapoff_(const string &device, vector<thread> &threads) {
     ALOGI("[THREAD] Swapoff: %s", device.c_str());
     safe_push_back(device, swapoff_tracker);
     threads.emplace_back(swapoff_th, device);
-  } else {
-    ALOGE("Swapoff: %s is in progress...", device.c_str());
   }
 }
 
@@ -635,7 +633,6 @@ void dyn_swap_service() {
                     SWAP_DEACTIVATION_TIME);
               swapoff_(last_active_swap, swapoff_thread);
             } else if (kill_low_swap) {
-              ALOGI("Low swap usage detected...");
               for (auto swap : low_usage_swaps) {
                 swapoff_(swap, swapoff_thread);
               }
