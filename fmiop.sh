@@ -445,7 +445,8 @@ archive_service() {
 		archive_file="$archive_dir/fmiop_archive_$timestamp.tar.gz"
 
 		# Archive files from both directories
-		tmp_dir=$(mktemp -d)
+		tmp_dir=/data/local/tmp/fmiop
+		mkdir -p $tmp_dir
 
 		cp -r /data/adb/fmiop/* "$tmp_dir/"
 		cp /sdcard/Android/fmiop/config.yaml "$tmp_dir/"
