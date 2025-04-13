@@ -6,7 +6,9 @@ set -x
 
 . $MODPATH/fmiop.sh
 
-for pid in $(ps aux | awk '/fmiop:V/ {print $2}'); do
+loger "Force kill logging termination."
+
+for pid in $(ps -ef | awk '/fmiop:V/ {print $2}'); do
 	kill -9 $pid
 done
 pkill -9 -f "logcat.*lmkd"

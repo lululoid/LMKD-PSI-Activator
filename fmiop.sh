@@ -30,8 +30,6 @@ export TAG LOGFILE LOG_FOLDER
 alias resetprop="resetprop -v"
 alias sed='$MODPATH/tools/sed' # Custom sed binary (MODPATH must be set)
 alias yq='$MODPATH/tools/yq'
-alias tar='$MODPATH/tools/tar'
-alias ps='$MODPATH/tools/ps'
 alias swapon='/system/bin/swapon'
 alias cmd='$MODPATH/tools/cmd'
 
@@ -447,14 +445,16 @@ archive_service() {
 		archive_file="$archive_dir/fmiop_archive_$timestamp.tar.gz"
 
 		# Archive files from both directories
-		tar_output=$(
-			tar -czf "$archive_file" \
-				-C /data/adb/fmiop . \
-				-C /sdcard/Android/fmiop ./config.yaml
-		)
+		tmp_dir=$(mktemp -d)
 
-		[ -z "$tar_output" ] &&
-			loger "Archived -> $archive_file: $tar_output"
+		cp -r /data/adb/fmiop/* "$tmp_dir/"
+		cp /sdcard/Android/fmiop/config.yaml "$tmp_dir/"
+
+		tar -czf "$archive_file" "$tmp_dir"
+
+		loger "Archived -> $archive_file"
+
+		rm -rf "$tmp_dir"
 
 		# Check and limit the number of archives to max_archives (5)
 		local archive_count
