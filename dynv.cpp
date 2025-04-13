@@ -453,29 +453,6 @@ void swapoff_(const string &device, vector<thread> &threads) {
   }
 }
 
-bool is_doze_mode() {
-  FILE *pipe = popen("dumpsys deviceidle get deep", "r");
-  if (!pipe) {
-    cerr << "Failed to check Doze Mode!" << endl;
-    return false;
-  }
-
-  char buffer[128];
-  string result = "";
-
-  while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-    result += buffer;
-  }
-
-  pclose(pipe);
-
-  // Trim whitespace
-  result.erase(0, result.find_first_not_of(" \n\r\t"));
-  result.erase(result.find_last_not_of(" \n\r\t") + 1);
-
-  return (result == "IDLE");
-}
-
 bool is_sleep_mode() {
   FILE *pipe = popen("dumpsys power", "r");
   if (!pipe) {
@@ -494,37 +471,6 @@ bool is_sleep_mode() {
 
   // Check if display is OFF
   return (result.find("mWakefulness=Asleep") != string::npos);
-}
-
-bool is_boot_wait() {
-  ifstream file(LOG_FOLDER + "/.boot_wait");
-  string line;
-
-  if (!file.is_open()) {
-    ALOGE(".boot_wait file is not exists.");
-    return false;
-  }
-
-  while (getline(file, line)) {
-    if (line.find("true") != string::npos) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-void set_boot_wait(const string &value) {
-  ofstream outfile(LOG_FOLDER + "/.boot_wait");
-  outfile << value;
-  outfile.close();
-}
-
-void do_wait(int value) {
-  ALOGI("Waiting for a while for lmkd to adjust.");
-  this_thread::sleep_for(chrono::seconds(value));
-  set_boot_wait("false");
-  ALOGI("Waited %d second. Dynamic swappiness active now.", value);
 }
 
 /**
