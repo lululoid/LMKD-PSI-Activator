@@ -11,6 +11,7 @@
 #include <iostream>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -40,6 +41,7 @@ extern void dyn_swap_service();
 extern void fmiop();
 
 atomic<bool> running(true);
+atomic<bool> waiting_for_swapoff(true);
 vector<string> swapoff_tracker, active_swaps;
 mutex safe_thread_mutex;
 pair<vector<string>, vector<string>> available_swaps;
@@ -441,11 +443,12 @@ void swapoff_th(const string &device) {
   }
 }
 
-void swapoff_(const string &device, vector<thread> &threads) {
+void swapoff_(const string &device, vector<thread> &threads,
+              optional<string> message = nullopt) {
   bool cntn_the_swap = contains(device, swapoff_tracker);
 
   if (!cntn_the_swap) {
-    ALOGI("[THREAD] Swapoff: %s", device.c_str());
+    ALOGI("[THREAD] Swapoff: %s. %s", device.c_str(), message->c_str());
     safe_push_back(device, swapoff_tracker);
     threads.emplace_back(swapoff_th, device);
   }
@@ -469,6 +472,13 @@ bool is_sleep_mode() {
 
   // Check if display is OFF
   return (result.find("mWakefulness=Asleep") != string::npos);
+}
+
+void sleeper(int n) {
+  for (size_t i = 0; i < n * 10 && waiting_for_swapoff; i++) {
+    this_thread::sleep_for(chrono::milliseconds(n));
+  }
+  waiting_for_swapoff = false;
 }
 
 /**
@@ -513,6 +523,7 @@ void dyn_swap_service() {
   bool is_swapoff_session = false, is_condition_met, kill_low_swap;
   vector<thread> swapoff_thread;
   vector<string> *current_avs, low_usage_swaps;
+  thread wfs_thread;
 
   while (running) {
     double memory_metric = read_pressure("memory", "some", "avg60");
@@ -538,12 +549,16 @@ void dyn_swap_service() {
     if (!DEACTIVATE_IN_SLEEP) {
       is_swapoff_session = true;
     } else if (!is_swapoff_session && is_sleep_mode()) {
+      waiting_for_swapoff = true;
+      thread wfs_thread(sleeper, wait_timeout);
+      wfs_thread.detach();
+
       ALOGI("Waiting for %d minutes...", SWAP_DEACTIVATION_TIME);
-      for (int i = 0; i < wait_timeout; ++i) {
+      while (waiting_for_swapoff) {
         if (!is_sleep_mode()) {
           ALOGI("Device awake before %d minutes, swap deactivation skipped.",
                 SWAP_DEACTIVATION_TIME);
-          break;
+          waiting_for_swapoff = false;
         }
         this_thread::sleep_for(chrono::seconds(1));
       }
@@ -554,6 +569,12 @@ void dyn_swap_service() {
       }
     } else if (!is_sleep_mode()) {
       is_swapoff_session = false;
+    } else if (is_swapoff_session && is_sleep_mode()) {
+      ALOGI("Service is idling...");
+
+      while (is_sleep_mode()) {
+        this_thread::sleep_for(chrono::seconds(1));
+      }
     }
 
     if (new_swappiness != last_swappiness) {
@@ -634,7 +655,7 @@ void dyn_swap_service() {
               swapoff_(last_active_swap, swapoff_thread);
             } else if (kill_low_swap) {
               for (auto swap : low_usage_swaps) {
-                swapoff_(swap, swapoff_thread);
+                swapoff_(swap, swapoff_thread, "Reason: low swap usage.");
               }
             }
           } catch (const out_of_range &e) {
