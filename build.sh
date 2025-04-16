@@ -152,6 +152,10 @@ main() {
 
 	local package_name="packages/${module_name}-v${version}_${versionCode}-$TAG.zip"
 
+	# 🧹 Delete old packages for this module
+	echo "- Cleaning up old packages..."
+	find packages/ -type f -name "${module_name}-v*.zip" ! -name "$(basename "$package_name")" -delete
+
 	echo "- Creating zip package: $package_name"
 	7za a "$package_name" \
 		META-INF fmiop.sh customize.sh module.prop "*service.sh" \
