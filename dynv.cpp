@@ -208,6 +208,49 @@ void save_pid(const string &pid_name, int pid_value) {
         found ? "(Updated)" : "(New)");
 }
 
+// Function to get the smallest priority of active ZRAM swaps
+int get_smlst_priority() {
+  ifstream file(SWAP_PROC_FILE);
+  if (!file) {
+    ALOGE("Error: Unable to open %s", SWAP_PROC_FILE);
+    return -1;
+  }
+
+  string line;
+  vector<int> priorities;
+
+  // Skip the first line (header)
+  getline(file, line);
+
+  while (getline(file, line)) {
+    istringstream iss(line);
+    string device;
+    int priority;
+    string temp;
+
+    // Extract values: device name is first, priority is the 5th column
+    for (int i = 0; i < 5; ++i) {
+      if (!(iss >> temp)) {
+        break;
+      }
+      if (i == 0) {
+        device = temp;
+      } else if (i == 4) {
+        priority = stoi(temp);
+      }
+    }
+
+    priorities.push_back(priority);
+  }
+
+  if (priorities.empty()) {
+    ALOGW("No active swaps found.");
+    return 32767;
+  }
+
+  return *min_element(priorities.begin(), priorities.end());
+}
+
 // Function to check if a ZRAM device is active
 bool is_active(const string &device) {
   ifstream file(SWAP_PROC_FILE);
@@ -535,11 +578,11 @@ void dyn_swap_service() {
   string swap_type = "zram";
   string last_active_swap, scnd_lst_swap, next_swap, first_swap;
   pair<int, int> lst_swap_usage, sc_prev_swap_usg;
-  int activation_threshold, deactivation_threshold, lst_scnd_act_threshold;
+  int activation_threshold, deactivation_threshold, lst_scnd_act_threshold,
+      priority;
   int last_swappiness = read_swappiness();
   int new_swappiness = SWAPPINESS_MAX;
   int wait_timeout = SWAP_DEACTIVATION_TIME * 60;
-  int priority = 32767;
   bool unbounded = true, no_pressure = false, scnd_log = true;
   bool is_swapoff_session = false, is_condition_met, kill_low_swap;
   vector<thread> swapoff_thread;
@@ -612,9 +655,6 @@ void dyn_swap_service() {
       current_avs = &available_swaps.first;
     } else if (!available_swaps.second.empty()) {
       current_avs = &available_swaps.second;
-      // make first swap and last zram to have same priority
-      // to reduce overhead
-      priority++;
     }
 
     if (unbounded) {
@@ -622,11 +662,11 @@ void dyn_swap_service() {
       if (active_swaps.empty()) {
         if (!current_avs->empty()) {
           first_swap = current_avs->back();
+          priority = get_smlst_priority();
 
           if (swapon(first_swap, priority)) {
             safe_push_back(first_swap, active_swaps);
             current_avs->pop_back();
-            priority--;
 
             ALOGI("SWAP: %s turned on.", first_swap.c_str());
           } else {
@@ -649,15 +689,13 @@ void dyn_swap_service() {
 
         if (lst_swap_usage.second > activation_threshold) {
           next_swap = current_avs->back();
+          priority = (next_swap.find("fmiop_swap.1") != string::npos)
+                         ? get_smlst_priority()
+                         : get_smlst_priority() - 1;
 
           if (swapon(next_swap, priority)) {
             safe_push_back(next_swap, active_swaps);
             current_avs->pop_back();
-            priority--;
-
-            ALOGI("SWAP: %s turned on", next_swap.c_str());
-          } else {
-            ALOGE("Failed to activate swap: %s", next_swap.c_str());
           }
         } else {
           try {
@@ -678,16 +716,10 @@ void dyn_swap_service() {
             if (is_condition_met) {
               ALOGI("Device sleep more than %d minutes. Deactivating swap...",
                     SWAP_DEACTIVATION_TIME);
-              if (swapoff_(last_active_swap, swapoff_thread)) {
-                priority++;
-              }
+              swapoff_(last_active_swap, swapoff_thread);
             } else if (kill_low_swap) {
               for (auto swap : low_usage_swaps) {
-                bool command =
-                    swapoff_(swap, swapoff_thread, "Reason: low swap usage.");
-                if (command) {
-                  priority++;
-                }
+                swapoff_(swap, swapoff_thread, "Reason: low swap usage.");
               }
             }
           } catch (const out_of_range &e) {
