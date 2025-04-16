@@ -16,7 +16,6 @@
 #include <stdexcept>
 #include <string>
 #include <sys/stat.h>
-#include <sys/swap.h> // For swapon(), swapoff()
 #include <thread>
 #include <unistd.h>
 #include <utility>
@@ -428,7 +427,9 @@ void safe_push_back(const string &value, vector<T> &elements) {
 
 // Function to perform swapoff on a single device
 void swapoff_th(const string &device) {
-  if (swapoff(device.c_str()) == 0) {
+  string command = "/system/bin/swapoff " + device;
+
+  if (system(command.c_str()) == 0) {
     ALOGI("Swap: %s is turned off.", device.c_str());
     if (device.find("zram") != string::npos) {
       safe_push_back(device, available_swaps.first);
@@ -443,7 +444,7 @@ void swapoff_th(const string &device) {
   }
 }
 
-void swapoff_(const string &device, vector<thread> &threads,
+bool swapoff_(const string &device, vector<thread> &threads,
               optional<string> message = nullopt) {
   bool cntn_the_swap = contains(device, swapoff_tracker);
 
@@ -451,6 +452,24 @@ void swapoff_(const string &device, vector<thread> &threads,
     ALOGI("[THREAD] Swapoff: %s. %s", device.c_str(), message->c_str());
     safe_push_back(device, swapoff_tracker);
     threads.emplace_back(swapoff_th, device);
+    return true;
+  } else {
+    return false;
+  }
+}
+
+bool swapon(const string device, int priority) {
+  string command =
+      "/system/bin/swapon -p " + to_string(priority) + " " + device;
+
+  if (system(command.c_str()) == 0) {
+    ALOGI("SWAP: %s turned on, priority: %d", device.c_str(), priority);
+
+    return true;
+  } else {
+    ALOGE("Failed: turn on swap %s", device.c_str());
+
+    return false;
   }
 }
 
@@ -517,8 +536,10 @@ void dyn_swap_service() {
   string last_active_swap, scnd_lst_swap, next_swap, first_swap;
   pair<int, int> lst_swap_usage, sc_prev_swap_usg;
   int activation_threshold, deactivation_threshold, lst_scnd_act_threshold;
-  int last_swappiness = read_swappiness(), new_swappiness = SWAPPINESS_MAX;
+  int last_swappiness = read_swappiness();
+  int new_swappiness = SWAPPINESS_MAX;
   int wait_timeout = SWAP_DEACTIVATION_TIME * 60;
+  int priority = 32767;
   bool unbounded = true, no_pressure = false, scnd_log = true;
   bool is_swapoff_session = false, is_condition_met, kill_low_swap;
   vector<thread> swapoff_thread;
@@ -591,6 +612,9 @@ void dyn_swap_service() {
       current_avs = &available_swaps.first;
     } else if (!available_swaps.second.empty()) {
       current_avs = &available_swaps.second;
+      // make first swap and last zram to have same priority
+      // to reduce overhead
+      priority++;
     }
 
     if (unbounded) {
@@ -599,9 +623,10 @@ void dyn_swap_service() {
         if (!current_avs->empty()) {
           first_swap = current_avs->back();
 
-          if ((swapon(first_swap.c_str(), 0)) == 0) {
+          if (swapon(first_swap, priority)) {
             safe_push_back(first_swap, active_swaps);
             current_avs->pop_back();
+            priority--;
 
             ALOGI("SWAP: %s turned on.", first_swap.c_str());
           } else {
@@ -625,9 +650,10 @@ void dyn_swap_service() {
         if (lst_swap_usage.second > activation_threshold) {
           next_swap = current_avs->back();
 
-          if ((swapon(next_swap.c_str(), 0)) == 0) {
+          if (swapon(next_swap, priority)) {
             safe_push_back(next_swap, active_swaps);
             current_avs->pop_back();
+            priority--;
 
             ALOGI("SWAP: %s turned on", next_swap.c_str());
           } else {
@@ -652,10 +678,16 @@ void dyn_swap_service() {
             if (is_condition_met) {
               ALOGI("Device sleep more than %d minutes. Deactivating swap...",
                     SWAP_DEACTIVATION_TIME);
-              swapoff_(last_active_swap, swapoff_thread);
+              if (swapoff_(last_active_swap, swapoff_thread)) {
+                priority++;
+              }
             } else if (kill_low_swap) {
               for (auto swap : low_usage_swaps) {
-                swapoff_(swap, swapoff_thread, "Reason: low swap usage.");
+                bool command =
+                    swapoff_(swap, swapoff_thread, "Reason: low swap usage.");
+                if (command) {
+                  priority++;
+                }
               }
             }
           } catch (const out_of_range &e) {
