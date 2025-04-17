@@ -651,10 +651,15 @@ apply_uffd_gc() {
   -> (https://github.com/lululoid/LMKD-PSI-Activator/issues/17)
 	"
 
-	cmd device_config put runtime_native_boot enable_uffd_gc_2 true && {
+	limit=60
+	until cmd device_config put runtime_native_boot enable_uffd_gc_2 true && {
 		uprint "- UFFD GC V2 is activated.
 " || loger "UFFD GC V2 is activated."
-	}
+	}; do
+		limit=$((limit - 1))
+		[ $limit -eq 0 ] && break
+		sleep 1
+	done
 
 	resetprop ro.dalvik.vm.enable_uffd_gc true && {
 		uprint "- UFFD GC V1 is activated.
