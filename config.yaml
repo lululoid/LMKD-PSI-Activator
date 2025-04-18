@@ -1,12 +1,14 @@
-config_version: 0.7
+config_version: 0.8
 dynamic_swappiness:
+  threshold_type: "psi"
   swappiness_range:
     max: 100
     min: 60
-  threshold:
+  threshold_psi:
     cpu_pressure: 40
     memory_pressure: 15
     io_pressure: 30
+  threshold_mem_pressure: 50
   step: 2
   apply_step: 20
 virtual_memory:

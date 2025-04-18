@@ -336,10 +336,28 @@ resize_zram() {
 
 # get_memory_pressure - Calculates memory pressure as a percentage
 get_memory_pressure() {
-	local mem_usage memsw_usage memory_pressure
-	mem_usage=$(cat /dev/memcg/memory.usage_in_bytes 2>/dev/null || echo 0)
-	memsw_usage=$(cat /dev/memcg/memory.memsw.usage_in_bytes 2>/dev/null || echo 1)
-	memory_pressure=$(awk -v mem_usage="$mem_usage" -v memsw_usage="$memsw_usage" 'BEGIN {print int(mem_usage * 100 / memsw_usage)}')
+	local mem_usage=0 swap_usage=0 memsw_usage=1 memory_pressure=0
+
+	if [ -f /dev/memcg/memory.usage_in_bytes ]; then
+		mem_usage=$(cat /dev/memcg/memory.usage_in_bytes)
+	else
+		mem_usage=$(free -b | awk '/^Mem:/ { print $3 }')
+	fi
+
+	swap_usage=$(free -b | awk '/^Swap:/ { print $3 }')
+
+	if [ -f /dev/memcg/memory.memsw.usage_in_bytes ]; then
+		memsw_usage=$(cat /dev/memcg/memory.memsw.usage_in_bytes)
+	else
+		memsw_usage=$((mem_usage + swap_usage))
+	fi
+
+	if [ "$memsw_usage" -eq 0 ]; then
+		memory_pressure=0
+	else
+		memory_pressure=$(awk -v m="$mem_usage" -v t="$memsw_usage" \
+			'BEGIN { print int(m * 100 / t) }')
+	fi
 
 	echo "$memory_pressure"
 }
@@ -651,18 +669,16 @@ apply_uffd_gc() {
   -> (https://github.com/lululoid/LMKD-PSI-Activator/issues/17)
 	"
 
+	resetprop ro.dalvik.vm.enable_uffd_gc true && {
+		uprint "  › UFFD GC V1 is activated." || loger "UFFD GC V1 is activated."
+	}
+
 	limit=60
 	until cmd device_config put runtime_native_boot enable_uffd_gc_2 true && {
-		uprint "- UFFD GC V2 is activated.
-" || loger "UFFD GC V2 is activated."
+		uprint "  › UFFD GC V2 is activated." || loger "UFFD GC V2 is activated."
 	}; do
 		limit=$((limit - 1))
 		[ $limit -eq 0 ] && break
 		sleep 1
 	done
-
-	resetprop ro.dalvik.vm.enable_uffd_gc true && {
-		uprint "- UFFD GC V1 is activated.
-" || loger "UFFD GC V1 is activated."
-	}
 }

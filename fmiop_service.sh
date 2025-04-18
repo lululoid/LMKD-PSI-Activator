@@ -20,6 +20,9 @@ get_config_checksum() {
 # Initial run
 start_services
 last_checksum=$(get_config_checksum)
+module_version=$(sed -nE 's/^version= *(.+)/\1/p' $MODPATH/module.prop)
+
+loger "Module version: $module_version"
 
 # Monitoring loop
 monitor_config() {

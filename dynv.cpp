@@ -441,39 +441,40 @@ vector<string> get_lusg_swaps() {
 }
 
 int get_memory_pressure() {
-  long mem_used = 0;
-  long swap_used = 0;
+  FILE *fp = popen("free -b", "r");
+  if (!fp) {
+    perror("popen failed");
+    return -1;
+  }
 
-  // Read /proc/meminfo
-  ifstream meminfo("/proc/meminfo");
   string line;
-  while (getline(meminfo, line)) {
-    istringstream iss(line);
-    string key;
-    long value;
-    string unit;
+  char buffer[256];
+  long mem_used, swap_used;
 
-    iss >> key >> value >> unit;
+  // Skip the header
+  fgets(buffer, sizeof(buffer), fp);
 
-    if (key == "MemTotal:") {
-      mem_used -= value;
-    } else if (key == "MemFree:" || key == "Buffers:" || key == "Cached:" ||
-               key == "SReclaimable:") {
-      mem_used += value;
-    } else if (key == "SwapTotal:") {
-      swap_used -= value;
-    } else if (key == "SwapFree:") {
-      swap_used += value;
+  while (fgets(buffer, sizeof(buffer), fp)) {
+    istringstream iss(buffer);
+    string label;
+    long used = 0, temp;
+
+    iss >> label;
+    if (label == "Mem:") {
+      iss >> temp >> used;
+      mem_used = used;
+    } else if (label == "Swap:") {
+      iss >> temp >> used;
+      swap_used = used;
     }
   }
 
-  mem_used = -mem_used;   // convert to actual used
-  swap_used = -swap_used; // same here
+  pclose(fp);
 
   long total_used = mem_used + swap_used;
 
   if (total_used == 0)
-    return 0; // avoid division by zero
+    return 0;
 
   return static_cast<int>((mem_used * 100) / total_used);
 }
