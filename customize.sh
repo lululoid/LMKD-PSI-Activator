@@ -157,10 +157,28 @@ to Android 10+"
 - LMKD PSI service keeper started"
 		relmkd
 	fi
+
 	apply_uffd_gc
+
+	[ $please_reboot ] &&
+		uprint "
+- REBOOT now"
 }
 
 update_config() {
+	rename_key() {
+		local target=$3
+		local old_key=$1
+		local new_key=$2
+
+		if [ $target ] || [ $old_key ] || [ $new_key ]; then
+			yq -i "$new_key = $old_key | del($old_key)" $target
+		else
+			ui_print "
+- Missing variable."
+		fi
+	}
+
 	local current_config_v last_config_v is_update current_config
 	current_config=$MODPATH/config.yaml
 	current_config_v=$(yq '.config_version' $current_config)
@@ -179,20 +197,31 @@ update_config() {
 		cp $CONFIG_INTERNAL $CONFIG_INTERNAL.old
 		cp $current_config $CONFIG_INTERNAL
 		cp $current_config $CONFIG_FILE
-		config_ready=true
-	elif [ "$last_config_v" = "null" ] || [ $is_update -eq 1 ]; then
-		yq ea -i 'select(fileIndex == 0) * select(fileIndex > 0) | sort_keys(.)' $CONFIG_FILE $current_config
+		config_backed=true
+	elif [ "$(echo "$last_config_v 0.7" | awk '{print ($1 <= $2) ? 1 : 0}')" -eq 1 ]; then
+		cp $CONFIG_INTERNAL $CONFIG_INTERNAL.old
+		rename_key .dynamic_swappiness.threshold_psi .dynamic_swappiness.threshold $CONFIG_INTERNAL
+		yq ea -i 'select(fileIndex == 0) * select(fileIndex > 0) | sort_keys(.)' $current_config $CONFIG_INTERNAL
+		yq -i ".config_version = $current_config_v" $current_config
+		cp $current_config $CONFIG_INTERNAL
+		cp $CONFIG_INTERNAL $CONFIG_FILE
 		uprint "
-- Config: $CONFIG_FILE is updated"
+- Config: $CONFIG_INTERNAL is updated"
+		config_backed=true
+	elif [ "$last_config_v" = "null" ] || [ $is_update -eq 1 ]; then # Adding new values
+		cp $CONFIG_INTERNAL $CONFIG_INTERNAL.old
+		yq ea -i 'select(fileIndex == 0) * select(fileIndex > 0) | sort_keys(.)' $current_config $CONFIG_INTERNAL
+		yq -i ".config_version = $current_config_v" $current_config
+		cp $current_config $CONFIG_INTERNAL
+		cp $CONFIG_INTERNAL $CONFIG_FILE
+		uprint "- Config: $CONFIG_INTERNAL is updated"
+		config_backed=true
 	fi
 
-	[ $config_ready ] &&
+	[ $config_backed ] &&
 		uprint "
-! Config is replaced with newer one. Backup $current_config.old created
+! Backup $CONFIG_INTERNAL.old created
   Config is located at $CONFIG_INTERNAL"
-	[ $please_reboot ] &&
-		uprint "
-- REBOOT now"
 }
 
 set_permissions
