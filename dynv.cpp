@@ -747,7 +747,7 @@ void dyn_swap_service() {
     }
 
     if (DEACTIVATE_IN_SLEEP) {
-      if (!waiting_for_swapoff) {
+      if (!waiting_for_swapoff && is_sleep_mode()) {
         is_swapoff_session = true;
       } else if (is_swapoff_session && is_sleep_mode()) {
         int counter = 0;
