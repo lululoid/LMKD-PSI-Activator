@@ -472,10 +472,7 @@ archive_service() {
 		cp /sdcard/Android/fmiop/config.yaml "$tmp_dir/"
 
 		cd $last_dir || cd $MODPATH || return
-		tar -czf "$archive_file" "$tmp_dir"
-
-		loger "Archived -> $archive_file"
-
+		tar -czf "$archive_file" "$tmp_dir" || loger "Log archiving failed."
 		rm -rf "$tmp_dir"
 
 		# Check and limit the number of archives to max_archives (5)

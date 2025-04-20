@@ -4,10 +4,12 @@
 #include <chrono>
 #include <cmath>
 #include <csignal>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <map>
 #include <mutex>
@@ -41,15 +43,17 @@ extern void fmiop();
 
 atomic<bool> running(true);
 atomic<bool> waiting_for_swapoff(true);
+atomic<bool> idle(false);
+atomic<bool> sleeper_kept_alive(true);
+atomic<bool> sleeper_alive(false);
 vector<string> swapoff_tracker, active_swaps;
 mutex safe_thread_mutex;
 pair<vector<string>, vector<string>> available_swaps;
 const string fmiop_dir = "/sdcard/Android/fmiop";
 const string NVBASE = "/data/adb";
-const string LOG_FOLDER = NVBASE + "/" + LOG_TAG;
-const string config_file = LOG_FOLDER + "/config.yaml";
-const string PID_DB = LOG_FOLDER + "/" + LOG_TAG + ".pids";
-string SWAP_FILE = "fmiop_swap.";
+const string LOG_FOLDER = NVBASE + "/fmiop";
+const string PID_DB = LOG_FOLDER + "/fmiop" + ".pids";
+const string SWAP_FILE = "fmiop_swap.";
 
 /**
  * Converts any type to string using stringstream.
@@ -60,12 +64,17 @@ template <typename T> string to_string_generic(const T &val) {
   return oss.str();
 }
 
+string &get_config_file() {
+  static string path = "/data/adb/fmiop/config.yaml";
+  return path;
+}
+
 /**
  * Reads a value from a YAML config file with a default fallback.
  */
 template <typename T> T read_config(const string &key_path, T default_value) {
   try {
-    YAML::Node node = YAML::LoadFile(config_file);
+    YAML::Node node = YAML::LoadFile(get_config_file());
     size_t pos = 0, found;
     string clean_key_path =
         (key_path[0] == '.') ? key_path.substr(1) : key_path;
@@ -101,6 +110,42 @@ template <typename T> T read_config(const string &key_path, T default_value) {
     return default_value;
   }
 }
+
+struct Config {
+  static inline float CONFIG_VERSION = read_config(".config_version", -1.0);
+  static inline int SWAPPINESS_MAX =
+      read_config(".dynamic_swappiness.swappiness_range.max", 100);
+  static inline int SWAPPINESS_MIN =
+      read_config(".dynamic_swappiness.swappiness_range.min", 80);
+  static inline int CPU_PRESSURE_THRESHOLD =
+      read_config(".dynamic_swappiness.threshold_psi.cpu_pressure", 35);
+  static inline int MEMORY_PRESSURE_THRESHOLD =
+      read_config(".dynamic_swappiness.threshold_psi.memory_pressure", 15);
+  static inline int IO_PRESSURE_THRESHOLD =
+      read_config(".dynamic_swappiness.threshold_psi.io_pressure", 30);
+  static inline int MEMORY_PRESSURE_THRESHOLD_ALT =
+      read_config(".dynamic_swappiness.threshold_mem_pressure", 60);
+  static inline int SWAPPINESS_STEP =
+      read_config(".dynamic_swappiness.step", 2);
+  static inline int SWAPPINESS_APPLY_STEP =
+      read_config(".dynamic_swappiness.apply_step", 20);
+  static inline int ZRAM_ACTIVATION_THRESHOLD =
+      read_config(".virtual_memory.zram.activation_threshold", 70);
+  static inline int ZRAM_DEACTIVATION_THRESHOLD =
+      read_config(".virtual_memory.zram.deactivation_threshold", 50);
+  static inline int SWAP_ACTIVATION_THRESHOLD =
+      read_config(".virtual_memory.swap.activation_threshold", 90);
+  static inline int SWAP_DEACTIVATION_THRESHOLD =
+      read_config(".virtual_memory.swap.deactivation_threshold", 50);
+  static inline int SWAP_DEACTIVATION_TIME =
+      read_config(".virtual_memory.wait_timeout", 10);
+  static inline bool PRESSURE_BINDING =
+      read_config(".virtual_memory.pressure_binding", false);
+  static inline bool DEACTIVATE_IN_SLEEP =
+      read_config(".virtual_memory.deactivate_in_sleep", true);
+  static inline string THRESHOLD_TYPE =
+      read_config(".dynamic_swappiness.threshold_type", string("psi"));
+};
 
 /**
  * Reads the current swappiness value from the system.
@@ -566,47 +611,48 @@ bool is_sleep_mode() {
   return (result.find("mWakefulness=Asleep") != string::npos);
 }
 
-void sleeper(int n) {
-  for (size_t i = 0; i < n * 10 && waiting_for_swapoff; i++) {
+void sleeper(int n, function<void()> callback = nullptr,
+             function<void()> callback1 = nullptr) {
+  sleeper_alive = true;
+  bool skip = false;
+
+  for (size_t i = 0; i < n * 10 && sleeper_kept_alive; ++i) {
+    if (callback1) {
+      callback1();
+      skip = true;
+    }
     this_thread::sleep_for(chrono::milliseconds(n));
   }
-  waiting_for_swapoff = false;
+
+  if (callback && !skip) {
+    callback();
+  }
+
+  sleeper_kept_alive = true;
+  sleeper_alive = false;
 }
 
 /**
  * Dynamic swappiness adjustment service.
  */
 void dyn_swap_service() {
-  float CONFIG_VERSION = read_config(".config_version", -1.0);
-  int SWAPPINESS_MAX =
-      read_config(".dynamic_swappiness.swappiness_range.max", 100);
-  int SWAPPINESS_MIN =
-      read_config(".dynamic_swappiness.swappiness_range.min", 80);
-  int CPU_PRESSURE_THRESHOLD =
-      read_config(".dynamic_swappiness.threshold_psi.cpu_pressure", 35);
-  int MEMORY_PRESSURE_THRESHOLD =
-      read_config(".dynamic_swappiness.threshold_psi.memory_pressure", 15);
-  int IO_PRESSURE_THRESHOLD =
-      read_config(".dynamic_swappiness.threshold_psi.io_pressure", 30);
-  int MEMORY_PRESSURE_THRESHOLD_ALT =
-      read_config(".dynamic_swappiness.threshold_mem_pressure", 60);
-  int SWAPPINESS_STEP = read_config(".dynamic_swappiness.step", 2);
-  int SWAPPINESS_APPLY_STEP = read_config(".dynamic_swappiness.apply_step", 20);
-  int ZRAM_ACTIVATION_THRESHOLD =
-      read_config(".virtual_memory.zram.activation_threshold", 70);
-  int ZRAM_DEACTIVATION_THRESHOLD =
-      read_config(".virtual_memory.zram.deactivation_threshold", 50);
-  int SWAP_ACTIVATION_THRESHOLD =
-      read_config(".virtual_memory.swap.activation_threshold", 90);
-  int SWAP_DEACTIVATION_THRESHOLD =
-      read_config(".virtual_memory.swap.deactivation_threshold", 50);
-  int SWAP_DEACTIVATION_TIME = read_config(".virtual_memory.wait_timeout", 10);
-  bool PRESSURE_BINDING =
-      read_config(".virtual_memory.pressure_binding", false);
-  bool DEACTIVATE_IN_SLEEP =
-      read_config(".virtual_memory.deactivate_in_sleep", true);
-  string THRESHOLD_TYPE =
-      read_config(".dynamic_swappiness.threshold_type", string("psi"));
+  float CONFIG_VERSION = Config::CONFIG_VERSION;
+  int SWAPPINESS_MAX = Config::SWAPPINESS_MAX;
+  int SWAPPINESS_MIN = Config::SWAPPINESS_MIN;
+  int CPU_PRESSURE_THRESHOLD = Config::CPU_PRESSURE_THRESHOLD;
+  int MEMORY_PRESSURE_THRESHOLD = Config::MEMORY_PRESSURE_THRESHOLD;
+  int IO_PRESSURE_THRESHOLD = Config::IO_PRESSURE_THRESHOLD;
+  int MEMORY_PRESSURE_THRESHOLD_ALT = Config::MEMORY_PRESSURE_THRESHOLD;
+  int SWAPPINESS_STEP = Config::SWAPPINESS_STEP;
+  int SWAPPINESS_APPLY_STEP = Config::SWAPPINESS_APPLY_STEP;
+  int ZRAM_ACTIVATION_THRESHOLD = Config::ZRAM_ACTIVATION_THRESHOLD;
+  int ZRAM_DEACTIVATION_THRESHOLD = Config::ZRAM_DEACTIVATION_THRESHOLD;
+  int SWAP_ACTIVATION_THRESHOLD = Config::SWAP_ACTIVATION_THRESHOLD;
+  int SWAP_DEACTIVATION_THRESHOLD = Config::SWAP_DEACTIVATION_THRESHOLD;
+  int SWAP_DEACTIVATION_TIME = Config::SWAP_DEACTIVATION_TIME;
+  bool PRESSURE_BINDING = Config::PRESSURE_BINDING;
+  bool DEACTIVATE_IN_SLEEP = Config::DEACTIVATE_IN_SLEEP;
+  string THRESHOLD_TYPE = Config::THRESHOLD_TYPE;
   bool in_pressure_logged;
 
   active_swaps = get_active_swap();
@@ -624,9 +670,10 @@ void dyn_swap_service() {
   int activation_threshold, deactivation_threshold, lst_scnd_act_threshold,
       priority;
   bool unbounded = true, scnd_log = true;
-  bool is_swapoff_session = false, is_condition_met, kill_low_swap, in_pressure;
+  bool is_condition_met, kill_low_swap, in_pressure;
   bool threshold_psi = THRESHOLD_TYPE == "psi";
   bool threshold_mem_pressure = THRESHOLD_TYPE == "mem_pressure";
+  bool is_swapoff_session = (!DEACTIVATE_IN_SLEEP) ? true : false;
 
   ALOGI("Config version: %.2f", CONFIG_VERSION);
 
@@ -646,7 +693,7 @@ void dyn_swap_service() {
       }
     } else if (threshold_mem_pressure) {
       int memory_pressure = get_memory_pressure();
-      in_pressure = memory_pressure < MEMORY_PRESSURE_THRESHOLD_ALT;
+      in_pressure = memory_pressure <= MEMORY_PRESSURE_THRESHOLD_ALT;
 
       if (in_pressure) {
         if (!in_pressure_logged) {
@@ -668,42 +715,6 @@ void dyn_swap_service() {
       unbounded = !PRESSURE_BINDING;
     }
 
-    if (!is_swapoff_session && is_sleep_mode()) {
-      waiting_for_swapoff = true;
-      thread wfs_thread(sleeper, wait_timeout);
-      wfs_thread.detach();
-
-      ALOGI("Waiting for %d minutes...", SWAP_DEACTIVATION_TIME);
-      while (waiting_for_swapoff) {
-        if (!is_sleep_mode()) {
-          ALOGI("Device awake before %d minutes, swap deactivation skipped.",
-                SWAP_DEACTIVATION_TIME);
-          waiting_for_swapoff = false;
-        }
-        this_thread::sleep_for(chrono::seconds(1));
-      }
-
-      if (is_sleep_mode()) {
-        is_swapoff_session = true;
-        ALOGD("Swapoff session started...");
-      }
-    } else if (!is_sleep_mode()) {
-      is_swapoff_session = false;
-    } else if (is_swapoff_session && is_sleep_mode()) {
-      int counter = 0;
-
-      ALOGI("Service is idling...");
-
-      while (is_sleep_mode()) {
-        counter++;
-        this_thread::sleep_for(chrono::seconds(1));
-      }
-
-      ALOGI("Idled for %d", counter);
-    } else if (!DEACTIVATE_IN_SLEEP) {
-      is_swapoff_session = true;
-    }
-
     if (new_swappiness != last_swappiness) {
       if (abs(last_swappiness - new_swappiness) >= SWAPPINESS_APPLY_STEP ||
           new_swappiness == SWAPPINESS_MIN ||
@@ -711,6 +722,47 @@ void dyn_swap_service() {
         ALOGI("Swappiness -> %d", new_swappiness);
         last_swappiness = new_swappiness;
         write_swappiness(new_swappiness);
+      }
+    }
+
+    if (!is_swapoff_session && is_sleep_mode() && !sleeper_alive) {
+      waiting_for_swapoff = true;
+      thread wfs_thread(
+          sleeper, wait_timeout,
+          [] {
+            waiting_for_swapoff = false;
+            ALOGD("Swapoff session started...");
+          },
+          [] {
+            if (!is_sleep_mode()) {
+              waiting_for_swapoff = false;
+              sleeper_kept_alive = false;
+
+              ALOGI(
+                  "Device awake before %d minutes, swap deactivation skipped.",
+                  Config::SWAP_DEACTIVATION_TIME);
+            }
+          });
+      wfs_thread.detach();
+    }
+
+    if (DEACTIVATE_IN_SLEEP) {
+      if (!waiting_for_swapoff) {
+        is_swapoff_session = true;
+      } else if (is_swapoff_session && is_sleep_mode()) {
+        int counter = 0;
+
+        ALOGI("Service is idling...");
+
+        while (is_sleep_mode()) {
+          counter++;
+          this_thread::sleep_for(chrono::seconds(1));
+        }
+
+        is_swapoff_session = false;
+        ALOGI("Idled for %d seconds", counter);
+      } else {
+        is_swapoff_session = false;
       }
     }
 

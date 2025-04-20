@@ -85,6 +85,7 @@ apply_touch_issue_workaround() {
 	# Add workaround for MIUI touch issue when LMKD is in PSI mode
 	# because despite its beauty MIUI is having weird issues
 	cat <<EOF
+
 - Do you want some smoothie🍹? Due to unknown
   reason. LMKD will thrash so much on your device 
   until your phone goes slow. This is simple work- 
@@ -143,10 +144,10 @@ main() {
 tweaks won't be applied. Please upgrade your phone 
 to Android 10+"
 	else
-		miui_v_code=$(resetprop ro.miui.ui.version.code)
 		uprint "
-- Total memory = $(free -h | awk '/^Mem:/ {print $2}')
-"
+- Total memory = $(free -h | awk '/^Mem:/ {print $2}')"
+		ui_print "
+- ZRAM will be set to $(free -h | awk '/^Mem:/ {print $2}') on boot."
 
 		apply_touch_issue_workaround
 		echo "- Applying lowmemorykiller properties"
