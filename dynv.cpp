@@ -678,6 +678,7 @@ void dyn_swap_service() {
   ALOGI("Config version: %.2f", CONFIG_VERSION);
 
   while (running) {
+    // Choosing threshold type based on config or if PSI is not available
     if (threshold_psi) {
       double memory_metric = read_pressure("memory", "some", "avg60");
       double cpu_metric = read_pressure("cpu", "some", "avg10");
@@ -744,28 +745,19 @@ void dyn_swap_service() {
             }
           });
       wfs_thread.detach();
+
+      ALOGI("Waiting for %d minutes...", SWAP_DEACTIVATION_TIME);
     }
 
     if (DEACTIVATE_IN_SLEEP) {
       if (!waiting_for_swapoff && is_sleep_mode()) {
         is_swapoff_session = true;
-      } else if (is_swapoff_session && is_sleep_mode()) {
-        int counter = 0;
-
-        ALOGI("Service is idling...");
-
-        while (is_sleep_mode()) {
-          counter++;
-          this_thread::sleep_for(chrono::seconds(1));
-        }
-
-        is_swapoff_session = false;
-        ALOGI("Idled for %d seconds", counter);
       } else {
         is_swapoff_session = false;
       }
     }
 
+    // Prioritize ZRAM first before swap
     if (!available_swaps.first.empty()) {
       current_avs = &available_swaps.first;
     } else if (!available_swaps.second.empty()) {
@@ -775,19 +767,16 @@ void dyn_swap_service() {
     if (unbounded) {
       // If there's no swap turn on first swap
       if (active_swaps.empty()) {
-        if (!current_avs->empty()) {
-          first_swap = current_avs->back();
-          priority = get_smlst_priority();
+        first_swap = current_avs->back();
+        priority = get_smlst_priority();
 
-          if (swapon(first_swap, priority)) {
-            safe_push_back(first_swap, active_swaps);
-            current_avs->pop_back();
+        if (swapon(first_swap, priority)) {
+          safe_push_back(first_swap, active_swaps);
+          current_avs->pop_back();
 
-            ALOGI("SWAPON: %s.", first_swap.c_str());
-          } else {
-            ALOGE("Failed to activate swap: %s", first_swap.c_str());
-            available_swaps = get_available_swap();
-          }
+          ALOGI("SWAPON: %s.", first_swap.c_str());
+        } else {
+          available_swaps = get_available_swap();
         }
       } else {
         last_active_swap = active_swaps.back();
@@ -802,7 +791,10 @@ void dyn_swap_service() {
                 : ZRAM_DEACTIVATION_THRESHOLD;
         low_usage_swaps = get_lusg_swaps();
 
-        if (lst_swap_usage.second > activation_threshold) {
+        // If last swap exceed activation threshold and there's swap available
+        // turn on next available swap
+        if (lst_swap_usage.second > activation_threshold &&
+            !current_avs->empty()) {
           next_swap = current_avs->back();
           priority = (next_swap.find("fmiop_swap.1") != string::npos)
                          ? get_smlst_priority()
@@ -811,8 +803,11 @@ void dyn_swap_service() {
           if (swapon(next_swap, priority)) {
             safe_push_back(next_swap, active_swaps);
             current_avs->pop_back();
+          } else {
+            available_swaps = get_available_swap();
           }
         } else {
+          // If SWAP more than 1 then check if need to turn off SWAP
           try {
             scnd_lst_swap = active_swaps.at(active_swaps.size() - 2);
             lst_scnd_act_threshold =
@@ -828,6 +823,7 @@ void dyn_swap_service() {
                              sc_prev_swap_usg.second < lst_scnd_act_threshold &&
                              active_swaps.size() > 1);
 
+            // If one of condition is met turn off SWAP
             if (is_condition_met) {
               ALOGI("Device sleep more than %d minutes. Deactivating swap...",
                     SWAP_DEACTIVATION_TIME);
