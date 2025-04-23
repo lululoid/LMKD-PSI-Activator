@@ -872,7 +872,7 @@ bool prop_exists(const string &prop) {
   return exists;
 }
 
-void rm_prop(const vector<string> &props) {
+bool rm_prop(const vector<string> &props) {
   for (const auto &prop : props) {
     if (prop_exists(prop)) {
       string command = "resetprop -d " + prop;
@@ -880,47 +880,22 @@ void rm_prop(const vector<string> &props) {
 
       if (result == 0) {
         ALOGW("Prop %s deleted successfully", prop.c_str());
+        return true;
       } else {
         ALOGW("Failed to delete prop: %s", prop.c_str());
       }
     }
   }
+  return false;
 }
 
 void fmiop() {
-  ALOGI("Starting fmiop memory optimization");
-
-  // Load properties
-  map<string, string> props;
-  ifstream props_file("/data/adb/modules/fogimp/system.prop");
-  string line;
-
-  while (getline(props_file, line)) {
-    if (line.empty() || line[0] == '#')
-      continue;
-    size_t equal_pos = line.find('=');
-    if (equal_pos != string::npos) {
-      string key = line.substr(0, equal_pos);
-      string value = line.substr(equal_pos + 1);
-      props[key] = value;
-      ALOGD("Loaded property %s=%s", key.c_str(), value.c_str());
-    }
-  }
-  props_file.close();
+  ALOGI("Starting minfree_level deleter service.");
 
   while (true) {
-    rm_prop({"sys.lmk.minfree_levels"});
-
-    for (const auto &[prop, value] : props) {
-      string check_command = "resetprop " + prop + " >/dev/null 2>&1";
-      if (system(check_command.c_str()) != 0) {
-        string reset_command = "resetprop " + prop + " " + value;
-        system(reset_command.c_str());
-        ALOGI("Reapplied %s=%s", prop.c_str(), value.c_str());
-        relmkd();
-      }
+    if (rm_prop({"sys.lmk.minfree_levels"})) {
+      relmkd();
     }
-
     this_thread::sleep_for(chrono::seconds(1));
   }
 }
