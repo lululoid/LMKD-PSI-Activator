@@ -364,7 +364,11 @@ get_memory_pressure() {
 			'BEGIN { print int(m * 100 / t) }')
 	fi
 
-	echo "$memory_pressure"
+	if [ $memory_pressure -le 100 ] || [ $memory_pressure -ge 0 ]; then
+		echo "$memory_pressure"
+	else
+		echo error
+	fi
 }
 
 # apply_lmkd_props - Applies LMKD properties from files
@@ -463,7 +467,6 @@ archive_service() {
 	# Ensure archive directory exists
 	mkdir -p "$archive_dir" || {
 		loger e "Failed to create archive directory $archive_dir"
-		return 1
 	}
 	loger "Starting archive service for $source_dirs"
 	exec 3>&-
@@ -482,7 +485,10 @@ archive_service() {
 		cp -r /data/adb/fmiop/* "$tmp_dir/"
 		cp /sdcard/Android/fmiop/config.yaml "$tmp_dir/"
 
-		cd $last_dir || cd $MODPATH || return
+		cd $last_dir || cd $MODPATH || {
+			loger "Failed to open $tmp_dir"
+			return
+		}
 		tar -czf "$archive_file" "$tmp_dir" || loger "Log archiving failed."
 		if [ $(check_file_size $archive_file) -eq 0 ]; then
 			loger "Log archiving failed. Size is 0."
@@ -694,7 +700,7 @@ setup_swap() {
 
 apply_uffd_gc() {
 	uprint " 
-- Apllying UFFC GC tweak
+- Apllying UFFD GC tweak
   What are these GCs (garbage collection)? Basically, they are Garbage
   Collectors focused on freeing up memory pages. The focus of these GCs
   is to minimize page faults and leave the memory clean enough to generate
@@ -714,7 +720,7 @@ apply_uffd_gc() {
 		uprint "  › UFFD GC V2 is activated." || loger "UFFD GC V2 is activated."
 	}; do
 		limit=$((limit - 1))
-		[ $limit -eq 0 ] && loger e "Waiting for $limit seconds, failed to apply UFFC GC 2" && break
+		[ $limit -eq 0 ] && loger e "Waiting for $limit seconds, failed to apply UFFD GC 2" && break
 		sleep 1
 	done &
 }

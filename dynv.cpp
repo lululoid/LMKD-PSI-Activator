@@ -492,7 +492,7 @@ int get_memory_pressure() {
 
   string line;
   char buffer[256];
-  long mem_used, swap_used;
+  long mem_used = 0, swap_used = 0;
 
   // Skip the header
   fgets(buffer, sizeof(buffer), fp);
@@ -713,6 +713,8 @@ void dyn_swap_service() {
           ALOGE("Error reading pressure metrics. Switching to mem_pressure "
                 "mode.");
           THRESHOLD_TYPE = "mem_pressure";
+          threshold_psi = THRESHOLD_TYPE == "psi";
+          threshold_mem_pressure = THRESHOLD_TYPE == "mem_pressure";
         }
       } else if (threshold_mem_pressure) {
         int memory_pressure = get_memory_pressure();

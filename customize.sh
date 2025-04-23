@@ -214,7 +214,6 @@ remove_fogimp() {
 		touch /data/adb/modules/fogimp/remove
 		ui_print ""
 		ui_print "- Fogimp marked for removal."
-		ui_print ""
 		please_reboot=true
 	fi
 }
