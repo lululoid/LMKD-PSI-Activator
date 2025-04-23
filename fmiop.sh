@@ -71,7 +71,10 @@ loger() {
 	esac
 
 	[ -z "$message" ] && message="$temp"
-	[ -n "$message" ] && log -p "$pri" -t "fmiop" "$message"
+	[ -n "$message" ] && {
+		log -p "$pri" -t "fmiop" "$message"
+		echo "[$(date +%d %m | %H:%M:%S:%N) | $pri] - $message" >>"${LOG%.log}_alt.log"
+	}
 }
 
 # check_file_size - Returns the size of a file in bytes
@@ -391,21 +394,27 @@ update_pressure_report() {
 	current_swappiness=$(cat /proc/sys/vm/swappiness)
 	pressure_emoji="🟩"
 
+	if [ "$memory_pressure" -gt 80 ]; then
+		pressure_emoji="⚪"
+	elif [ "$memory_pressure" -gt 60 ]; then
+		pressure_emoji="🟩"
+	elif [ "$memory_pressure" -gt 40 ]; then
+		pressure_emoji="🟨"
+	else
+		pressure_emoji="🟥"
+	fi
+
 	# Assign emoji based on memory pressure
 	if [ $memory_pressure -ge $((last_memory_pressure + 5)) ] ||
 		[ $memory_pressure -le $((last_memory_pressure - 5)) ] && [ $memory_pressure != $last_memory_pressure ]; then
 		last_memory_pressure=$memory_pressure
 		if [ "$memory_pressure" -gt 80 ]; then
-			pressure_emoji="⚪"
 			loger i "Sleek! It's (memory_pressure: $pressure_emoji $memory_pressure), got nothing in RAM huh?"
 		elif [ "$memory_pressure" -gt 60 ]; then
-			pressure_emoji="🟩"
 			loger i "What expected, just normal usage (memory_pressure: $pressure_emoji $memory_pressure)"
 		elif [ "$memory_pressure" -gt 40 ]; then
-			pressure_emoji="🟨"
 			loger i "I don't like potato (memory_pressure: $pressure_emoji $memory_pressure)"
 		else
-			pressure_emoji="🟥"
 			loger i "Call for ambulance (memory_pressure: $pressure_emoji $memory_pressure)"
 		fi
 	fi
@@ -603,6 +612,28 @@ kill_services() {
 	done
 }
 
+magisk_ge() {
+	local version
+	version=$(magisk -v 2>/dev/null | awk -F ':' '{print $1}')
+	if [ -z "$version" ]; then
+		loger "❌ Failed to get Magisk version"
+		uprint "
+❌ Failed to get Magisk version"
+		return 1
+	fi
+
+	awk -v v="$version" -v n="$1" 'BEGIN {
+    split(v, ver, ".");
+    major = ver[1];
+    minor = (ver[2] == "") ? 0 : ver[2];
+    if (major > n || major == n ||(minor > 0)) {
+      exit 0;  # true
+    } else {
+      exit 1;  # false
+    }
+  }'
+}
+
 setup_swap() {
 	local free_space swap_size available_swaps
 
@@ -646,8 +677,14 @@ setup_swap() {
 - Storage full. Please free up your storage."
 		fi
 	else
-		uprint "
+		if magisk_ge "28.0"; then
+			uprint "
+- SWAP already exists. Press action button
+  in your root manager app to remake the SWAP."
+		else
+			uprint "
 - SWAP already exists."
+		fi
 	fi
 
 	return 1
@@ -675,7 +712,7 @@ apply_uffd_gc() {
 		uprint "  › UFFD GC V2 is activated." || loger "UFFD GC V2 is activated."
 	}; do
 		limit=$((limit - 1))
-		[ $limit -eq 0 ] && break
+		[ $limit -eq 0 ] && loger e "Waiting for $limit seconds, failed to apply UFFC GC 2" && break
 		sleep 1
-	done
+	done &
 }
