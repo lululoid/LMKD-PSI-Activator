@@ -7,6 +7,7 @@
 #          waiting for boot completion, and starting fmiop services.
 # Note: This script assumes fmiop.sh and related services are in MODDIR.
 
+printenv >/data/adb/fmiop/env.log
 ### Configuration ###
 MODDIR=${0%/*}                # Directory of this script
 MODPATH="${MODDIR:-$MODPATH}" # Set MODPATH if not defined externally

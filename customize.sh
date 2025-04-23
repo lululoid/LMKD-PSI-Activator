@@ -205,8 +205,22 @@ update_tools() {
 	fi
 }
 
+remove_fogimp() {
+	miui_v=$(resetprop ro.miui.ui.version.code)
+	bootimg_model=$(resetprop ro.product.bootimage.model)
+	product_model=$(resetprop ro.product.model)
+
+	if [ $bootimg_model != "Redmi 10C" ] || [ $product_model != "220333QAG" ] || [ -z $miui_v ]; then
+		touch /data/adb/modules/fogimp/remove
+		ui_print ""
+		ui_print "- Fogimp marked for removal."
+		ui_print ""
+		please_reboot=true
+	fi
+}
+
 main() {
-	local android_version miui_v_code
+	local android_version
 	android_version=$(getprop ro.build.version.release)
 
 	if ! is_arm64; then
@@ -252,6 +266,7 @@ to Android 10+"
 
 	apply_uffd_gc
 	update_tools
+	remove_fogimp
 
 	[ $please_reboot ] &&
 		uprint "

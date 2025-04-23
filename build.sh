@@ -37,11 +37,6 @@ read_version_code() {
 	grep -Eo 'versionCode=[0-9]+' module.prop | cut -d'=' -f2
 }
 
-# Get latest package matching fogimp*
-get_latest_fogimp_pkg() {
-	ls -tr packages/fogimp* 2>/dev/null | tail -n1
-}
-
 # Update JSON configuration
 update_json() {
 	local file="$1"
@@ -134,8 +129,6 @@ main() {
 
 	local module_name
 	module_name=$(grep -Eo '^id=.*' module.prop | cut -d'=' -f2)
-	local fogimp_pkg
-	fogimp_pkg=$(get_latest_fogimp_pkg)
 
 	update_json update_config.json "$versionCode" "$version"
 
@@ -160,7 +153,7 @@ main() {
 	7za a "$package_name" \
 		META-INF fmiop.sh customize.sh module.prop "*service.sh" \
 		uninstall.sh action.sh config.yaml \
-		system/bin tools "$fogimp_pkg" "fmiop-v${version}_${versionCode}-changelog.md"
+		system/bin tools
 
 	if $INSTALL; then
 		check_root "You need ROOT to install this module" || su -c "magisk --install-module $package_name"
