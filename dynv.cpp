@@ -11,7 +11,6 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
-#include <map>
 #include <mutex>
 #include <optional>
 #include <sstream>
@@ -43,7 +42,6 @@ extern void fmiop();
 
 atomic<bool> running(true);
 atomic<bool> waiting_for_swapoff(true);
-atomic<bool> idle(false);
 atomic<bool> sleeper_kept_alive(true);
 atomic<bool> sleeper_alive(false);
 vector<string> swapoff_tracker, active_swaps;
@@ -591,6 +589,29 @@ bool swapon(const string device, int priority) {
   }
 }
 
+bool is_doze_mode() {
+  FILE *pipe = popen("dumpsys deviceidle get deep", "r");
+  if (!pipe) {
+    cerr << "Failed to check Doze Mode!" << endl;
+    return false;
+  }
+
+  char buffer[128];
+  string result = "";
+
+  while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+    result += buffer;
+  }
+
+  pclose(pipe);
+
+  // Trim whitespace
+  result.erase(0, result.find_first_not_of(" \n\r\t"));
+  result.erase(result.find_last_not_of(" \n\r\t") + 1);
+
+  return (result == "IDLE");
+}
+
 bool is_sleep_mode() {
   FILE *pipe = popen("dumpsys power", "r");
   if (!pipe) {
@@ -678,173 +699,176 @@ void dyn_swap_service() {
   ALOGI("Config version: %.2f", CONFIG_VERSION);
 
   while (running) {
-    // Choosing threshold type based on config or if PSI is not available
-    if (threshold_psi) {
-      double memory_metric = read_pressure("memory", "some", "avg60");
-      double cpu_metric = read_pressure("cpu", "some", "avg10");
-      double io_metric = read_pressure("io", "some", "avg60");
-      in_pressure = io_metric > IO_PRESSURE_THRESHOLD ||
-                    cpu_metric > CPU_PRESSURE_THRESHOLD ||
-                    memory_metric > MEMORY_PRESSURE_THRESHOLD;
+    if (!is_doze_mode()) {
+      // Choosing threshold type based on config or if PSI is not available
+      if (threshold_psi) {
+        double memory_metric = read_pressure("memory", "some", "avg60");
+        double cpu_metric = read_pressure("cpu", "some", "avg10");
+        double io_metric = read_pressure("io", "some", "avg60");
+        in_pressure = io_metric > IO_PRESSURE_THRESHOLD ||
+                      cpu_metric > CPU_PRESSURE_THRESHOLD ||
+                      memory_metric > MEMORY_PRESSURE_THRESHOLD;
 
-      if (isnan(memory_metric) || isnan(cpu_metric) || isnan(io_metric)) {
-        ALOGE(
-            "Error reading pressure metrics. Switching to mem_pressure mode.");
-        THRESHOLD_TYPE = "mem_pressure";
+        if (isnan(memory_metric) || isnan(cpu_metric) || isnan(io_metric)) {
+          ALOGE("Error reading pressure metrics. Switching to mem_pressure "
+                "mode.");
+          THRESHOLD_TYPE = "mem_pressure";
+        }
+      } else if (threshold_mem_pressure) {
+        int memory_pressure = get_memory_pressure();
+        in_pressure = memory_pressure <= MEMORY_PRESSURE_THRESHOLD_ALT;
+
+        if (in_pressure) {
+          if (!in_pressure_logged) {
+            ALOGI("Memory pressure %d < %d. Threshold reached. Changing "
+                  "swappiness.",
+                  memory_pressure, MEMORY_PRESSURE_THRESHOLD_ALT);
+            in_pressure_logged = true;
+          }
+        } else {
+          in_pressure_logged = false;
+        }
       }
-    } else if (threshold_mem_pressure) {
-      int memory_pressure = get_memory_pressure();
-      in_pressure = memory_pressure <= MEMORY_PRESSURE_THRESHOLD_ALT;
 
       if (in_pressure) {
-        if (!in_pressure_logged) {
-          ALOGI("Memory pressure %d < %d. Threshold reached. Changing "
-                "swappiness.",
-                memory_pressure, MEMORY_PRESSURE_THRESHOLD_ALT);
-          in_pressure_logged = true;
-        }
+        new_swappiness = max(SWAPPINESS_MIN, new_swappiness - SWAPPINESS_STEP);
+        unbounded = true;
       } else {
-        in_pressure_logged = false;
+        new_swappiness = min(SWAPPINESS_MAX, new_swappiness + SWAPPINESS_STEP);
+        unbounded = !PRESSURE_BINDING;
       }
-    }
 
-    if (in_pressure) {
-      new_swappiness = max(SWAPPINESS_MIN, new_swappiness - SWAPPINESS_STEP);
-      unbounded = true;
-    } else {
-      new_swappiness = min(SWAPPINESS_MAX, new_swappiness + SWAPPINESS_STEP);
-      unbounded = !PRESSURE_BINDING;
-    }
-
-    if (new_swappiness != last_swappiness) {
-      if (abs(last_swappiness - new_swappiness) >= SWAPPINESS_APPLY_STEP ||
-          new_swappiness == SWAPPINESS_MIN ||
-          new_swappiness == SWAPPINESS_MAX) {
-        ALOGI("Swappiness -> %d", new_swappiness);
-        last_swappiness = new_swappiness;
-        write_swappiness(new_swappiness);
+      if (new_swappiness != last_swappiness) {
+        if (abs(last_swappiness - new_swappiness) >= SWAPPINESS_APPLY_STEP ||
+            new_swappiness == SWAPPINESS_MIN ||
+            new_swappiness == SWAPPINESS_MAX) {
+          ALOGI("Swappiness -> %d", new_swappiness);
+          last_swappiness = new_swappiness;
+          write_swappiness(new_swappiness);
+        }
       }
-    }
 
-    if (!is_swapoff_session && is_sleep_mode() && !sleeper_alive) {
-      waiting_for_swapoff = true;
-      thread wfs_thread(
-          sleeper, wait_timeout,
-          [] {
-            waiting_for_swapoff = false;
-            ALOGD("Swapoff session started...");
-          },
-          [] {
-            if (!is_sleep_mode()) {
+      if (!is_swapoff_session && is_sleep_mode() && !sleeper_alive) {
+        waiting_for_swapoff = true;
+        thread wfs_thread(
+            sleeper, wait_timeout,
+            [] {
               waiting_for_swapoff = false;
-              sleeper_kept_alive = false;
+              ALOGD("Swapoff session started...");
+            },
+            [] {
+              if (!is_sleep_mode()) {
+                waiting_for_swapoff = false;
+                sleeper_kept_alive = false;
 
-              ALOGI(
-                  "Device awake before %d minutes, swap deactivation skipped.",
-                  Config::SWAP_DEACTIVATION_TIME);
-            }
-          });
-      wfs_thread.detach();
+                ALOGI("Device awake before %d minutes, swap deactivation "
+                      "skipped.",
+                      Config::SWAP_DEACTIVATION_TIME);
+              }
+            });
+        wfs_thread.detach();
 
-      ALOGI("Waiting for %d minutes...", SWAP_DEACTIVATION_TIME);
-    }
-
-    if (DEACTIVATE_IN_SLEEP) {
-      if (!waiting_for_swapoff && is_sleep_mode()) {
-        is_swapoff_session = true;
-      } else {
-        is_swapoff_session = false;
+        ALOGI("Waiting for %d minutes...", SWAP_DEACTIVATION_TIME);
       }
-    }
 
-    // Prioritize ZRAM first before swap
-    if (!available_swaps.first.empty()) {
-      current_avs = &available_swaps.first;
-    } else if (!available_swaps.second.empty()) {
-      current_avs = &available_swaps.second;
-    }
-
-    if (unbounded) {
-      // If there's no swap turn on first swap
-      if (active_swaps.empty()) {
-        first_swap = current_avs->back();
-        priority = get_smlst_priority();
-
-        if (swapon(first_swap, priority)) {
-          safe_push_back(first_swap, active_swaps);
-          current_avs->pop_back();
-
-          ALOGI("SWAPON: %s.", first_swap.c_str());
+      if (DEACTIVATE_IN_SLEEP) {
+        if (!waiting_for_swapoff && is_sleep_mode()) {
+          is_swapoff_session = true;
         } else {
-          available_swaps = get_available_swap();
+          is_swapoff_session = false;
         }
-      } else {
-        last_active_swap = active_swaps.back();
-        lst_swap_usage = get_swap_usage(last_active_swap);
-        activation_threshold =
-            (last_active_swap.find(SWAP_FILE) != string::npos)
-                ? SWAP_ACTIVATION_THRESHOLD
-                : ZRAM_ACTIVATION_THRESHOLD;
-        deactivation_threshold =
-            (last_active_swap.find(SWAP_FILE) != string::npos)
-                ? SWAP_DEACTIVATION_THRESHOLD
-                : ZRAM_DEACTIVATION_THRESHOLD;
-        low_usage_swaps = get_lusg_swaps();
+      }
 
-        // If last swap exceed activation threshold and there's swap available
-        // turn on next available swap
-        if (lst_swap_usage.second > activation_threshold &&
-            !current_avs->empty()) {
-          next_swap = current_avs->back();
-          priority = (next_swap.find("fmiop_swap.1") != string::npos)
-                         ? get_smlst_priority()
-                         : get_smlst_priority() - 1;
+      // Prioritize ZRAM first before swap
+      if (!available_swaps.first.empty()) {
+        current_avs = &available_swaps.first;
+      } else if (!available_swaps.second.empty()) {
+        current_avs = &available_swaps.second;
+      }
 
-          if (swapon(next_swap, priority)) {
-            safe_push_back(next_swap, active_swaps);
+      if (unbounded) {
+        // If there's no swap turn on first swap
+        if (active_swaps.empty()) {
+          first_swap = current_avs->back();
+          priority = get_smlst_priority();
+
+          if (swapon(first_swap, priority)) {
+            safe_push_back(first_swap, active_swaps);
             current_avs->pop_back();
+
+            ALOGI("SWAPON: %s.", first_swap.c_str());
           } else {
             available_swaps = get_available_swap();
           }
         } else {
-          // If SWAP more than 1 then check if need to turn off SWAP
-          try {
-            scnd_lst_swap = active_swaps.at(active_swaps.size() - 2);
-            lst_scnd_act_threshold =
-                (scnd_lst_swap.find(SWAP_FILE) != string::npos)
-                    ? SWAP_ACTIVATION_THRESHOLD
-                    : ZRAM_ACTIVATION_THRESHOLD;
-            sc_prev_swap_usg = get_swap_usage(scnd_lst_swap);
-            is_condition_met =
-                (sc_prev_swap_usg.second < lst_scnd_act_threshold &&
-                 lst_swap_usage.first < deactivation_threshold) &&
-                is_swapoff_session;
-            kill_low_swap = (!low_usage_swaps.empty() &&
-                             sc_prev_swap_usg.second < lst_scnd_act_threshold &&
-                             active_swaps.size() > 1);
+          last_active_swap = active_swaps.back();
+          lst_swap_usage = get_swap_usage(last_active_swap);
+          activation_threshold =
+              (last_active_swap.find(SWAP_FILE) != string::npos)
+                  ? SWAP_ACTIVATION_THRESHOLD
+                  : ZRAM_ACTIVATION_THRESHOLD;
+          deactivation_threshold =
+              (last_active_swap.find(SWAP_FILE) != string::npos)
+                  ? SWAP_DEACTIVATION_THRESHOLD
+                  : ZRAM_DEACTIVATION_THRESHOLD;
+          low_usage_swaps = get_lusg_swaps();
 
-            // If one of condition is met turn off SWAP
-            if (is_condition_met) {
-              ALOGI("Device sleep more than %d minutes. Deactivating swap...",
-                    SWAP_DEACTIVATION_TIME);
-              swapoff_(last_active_swap, swapoff_thread);
-            } else if (kill_low_swap) {
-              for (auto swap : low_usage_swaps) {
-                swapoff_(swap, swapoff_thread, "Reason: low swap usage.");
-              }
+          // If last swap exceed activation threshold and there's swap available
+          // turn on next available swap
+          if (lst_swap_usage.second > activation_threshold &&
+              !current_avs->empty()) {
+            next_swap = current_avs->back();
+            priority = (next_swap.find("fmiop_swap.1") != string::npos)
+                           ? get_smlst_priority()
+                           : get_smlst_priority() - 1;
+
+            if (swapon(next_swap, priority)) {
+              safe_push_back(next_swap, active_swaps);
+              current_avs->pop_back();
+            } else {
+              available_swaps = get_available_swap();
             }
-          } catch (const out_of_range &e) {
-            if (scnd_log) {
-              ALOGE("No second last swap.");
-              scnd_log = false;
+          } else {
+            // If SWAP more than 1 then check if need to turn off SWAP
+            try {
+              scnd_lst_swap = active_swaps.at(active_swaps.size() - 2);
+              lst_scnd_act_threshold =
+                  (scnd_lst_swap.find(SWAP_FILE) != string::npos)
+                      ? SWAP_ACTIVATION_THRESHOLD
+                      : ZRAM_ACTIVATION_THRESHOLD;
+              sc_prev_swap_usg = get_swap_usage(scnd_lst_swap);
+              is_condition_met =
+                  (sc_prev_swap_usg.second < lst_scnd_act_threshold &&
+                   lst_swap_usage.first < deactivation_threshold) &&
+                  is_swapoff_session;
+              kill_low_swap =
+                  (!low_usage_swaps.empty() &&
+                   sc_prev_swap_usg.second < lst_scnd_act_threshold &&
+                   active_swaps.size() > 1);
+
+              // If one of condition is met turn off SWAP
+              if (is_condition_met) {
+                ALOGI("Device sleep more than %d minutes. Deactivating swap...",
+                      SWAP_DEACTIVATION_TIME);
+                swapoff_(last_active_swap, swapoff_thread);
+              } else if (kill_low_swap) {
+                for (auto swap : low_usage_swaps) {
+                  swapoff_(swap, swapoff_thread, "Reason: low swap usage.");
+                }
+              }
+            } catch (const out_of_range &e) {
+              if (scnd_log) {
+                ALOGE("No second last swap.");
+                scnd_log = false;
+              }
             }
           }
         }
       }
-    }
-    // Sleep for 1 second (100ms * 10 loops)
-    for (int i = 0; i < 10 && running; ++i) {
-      this_thread::sleep_for(chrono::milliseconds(100));
+      // Sleep for 1 second (100ms * 10 loops)
+      for (int i = 0; i < 10 && running; ++i) {
+        this_thread::sleep_for(chrono::milliseconds(100));
+      }
     }
   }
 }
