@@ -20,8 +20,10 @@ PID_DB="$LOG_FOLDER/$TAG.pids"                    # File to store process IDs of
 FOGIMP_PROPS="$NVBASE/modules/fogimp/system.prop" # External properties file for LMKD tweaks
 FMIOP_DIR=/sdcard/Android/fmiop
 SWAP_FILENAME="$NVBASE/fmiop_swap"
+AVAILABLE_SWAPS=$(find $SWAP_FILENAME*)
 CONFIG_FILE="$LOG_FOLDER/config.yaml"    # YAML config file for thresholds and settings
 CONFIG_INTERNAL="$FMIOP_DIR/config.yaml" # YAML config file for thresholds and settings
+FREE_SPACE=$(df /data | sed -n '2p' | sed 's/[^0-9 ]*//g' | sed ':a;N;$!ba;s/\n/ /g' | awk '{print $4}')
 
 # Export variables for use in sourced scripts or subprocesses
 export TAG LOGFILE LOG_FOLDER
@@ -73,7 +75,7 @@ loger() {
 	[ -z "$message" ] && message="$temp"
 	[ -n "$message" ] && {
 		log -p "$pri" -t "fmiop" "$message"
-		echo "[$(date +%d %m | %H:%M:%S:%N) | $pri] - $message" >>"${LOG%.log}_alt.log"
+		echo "[$(date '+%d %m | %H:%M:%S:%N') | $pri] - $message" >>"${LOG%.log}_alt.log"
 	}
 }
 
@@ -482,6 +484,9 @@ archive_service() {
 
 		cd $last_dir || cd $MODPATH || return
 		tar -czf "$archive_file" "$tmp_dir" || loger "Log archiving failed."
+		if [ $(check_file_size $archive_file) -eq 0 ]; then
+			loger "Log archiving failed. Size is 0."
+		fi
 		rm -rf "$tmp_dir"
 
 		# Check and limit the number of archives to max_archives (5)
@@ -495,7 +500,6 @@ archive_service() {
 			local excess=$((archive_count - max_archives))
 			ls -t "$archive_dir/fmiop_archive_"*.tar.gz | tail -n "$excess" | while read -r old_archive; do
 				rm -f "$old_archive"
-				loger "Removed: $old_archive, limit: $max_archives archives."
 
 				exec 3>&-
 				set +x
@@ -594,6 +598,7 @@ make_swap() {
 }
 
 start_services() {
+	loger "===Main service started from here==="
 	pressure_reporter_service
 	su -c $MODPATH/system/bin/dynv &
 	loger "Started dyn_swap_service with PID $!"
@@ -636,9 +641,7 @@ magisk_ge() {
 
 setup_swap() {
 	local free_space swap_size available_swaps
-
-	# Get the free space in /data
-	free_space=$(df /data | sed -n '2p' | sed 's/[^0-9 ]*//g' | sed ':a;N;$!ba;s/\n/ /g' | awk '{print $4}')
+	free_space=$FREE_SPACE
 
 	if ! echo "$free_space" | grep -qE '^[0-9]+$' || [ -z "$free_space" ]; then
 		uprint "- Error: Failed to retrieve valid free space information."
@@ -646,8 +649,7 @@ setup_swap() {
 		fuck_free_space=true
 	fi
 
-	# Get the list of available swap files
-	available_swaps=$(find $SWAP_FILENAME*)
+	available_swaps=$AVAILABLE_SWAPS
 
 	if [ -z "$available_swaps" ]; then
 		# No existing swap files, need to create swap
