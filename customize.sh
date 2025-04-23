@@ -60,14 +60,14 @@ lmkd_apply() {
 	if [ "$totalmem" -lt 2097152 ]; then
 		uprint "
 - ! Device is low RAM. Applying low RAM tweaks"
-		cat <<EOF >>$MODPATH/system.prop
+		cat <<EOF >$MODPATH/system.prop
 ro.config.low_ram=true
 ro.lmk.use_psi=true
 ro.lmk.debug=false
 ro.lmk.use_minfree_levels=false
 EOF
 	else
-		cat <<EOF >>$MODPATH/system.prop
+		cat <<EOF >$MODPATH/system.prop
 ro.config.low_ram=false
 ro.lmk.use_psi=true
 ro.lmk.debug=false
@@ -76,25 +76,22 @@ EOF
 	fi
 
 	rm_prop sys.lmk.minfree_levels
-	approps $MODPATH/system.prop
-	uprint "
-- LMKD PSI mode activated."
 }
 
-apply_touch_issue_workaround() {
+apply_lmkd_tweaks() {
 	# Add workaround for MIUI touch issue when LMKD is in PSI mode
 	# because despite its beauty MIUI is having weird issues
+	local applied=false
 	cat <<EOF
 
-- Do you want some smoothie🍹? Due to unknown
-  reason. LMKD will thrash so much on your device 
-  until your phone goes slow. This is simple work- 
-  around to make your phone stay as smooth as 
-  possible. RECOMMENDED to apply.
+- Apply smoothie🍹tweaks for LMKD?
+  Due to unknown reason. LMKD will thrash so much
+  on your device until your phone goes slow. 
+  This is simple workaround to make your phone 
+  stay as smooth as possible. RECOMMENDED to apply.
 
   Press VOLUME + to apply workaround
   Press VOLUME - to skip
-
 EOF
 
 	exec 3>&-
@@ -105,10 +102,15 @@ EOF
 			exec 3>&1
 			set -x
 
-			echo "  › Installing fogimp module 🍹
-"
-			magisk --install-module $MODPATH/packages/fogim*
-			echo ""
+			cat <<EOF >>$MODPATH/system.prop
+ro.lmk.kill_heaviest_task=false
+ro.lmk.psi_partial_stall_ms=60
+ro.lmk.psi_complete_stall_ms=650
+ro.lmk.swap_util_max=75
+ro.lmk.thrashing_limit_decay=80
+ro.lmk.thrashing_limit=30
+EOF
+			applied=true
 
 			exec 3>&-
 			set +x
@@ -120,6 +122,7 @@ EOF
 	kill -9 $capture_pid
 	exec 3>&1
 	set -x
+	[ $applied ] || return 1
 }
 
 is_arm64() {
@@ -132,38 +135,6 @@ is_arm64() {
 		return 1 # false
 		;;
 	esac
-}
-
-main() {
-	local android_version miui_v_code
-	android_version=$(getprop ro.build.version.release)
-
-	kill_all_pids
-	if [ "$android_version" -lt 10 ]; then
-		uprint "- Your Android version is not supported. Performance
-tweaks won't be applied. Please upgrade your phone 
-to Android 10+"
-	else
-		uprint "
-- Total memory = $(free -h | awk '/^Mem:/ {print $2}')"
-		ui_print "
-- ZRAM will be set to $(free -h | awk '/^Mem:/ {print $2}') on boot."
-
-		apply_touch_issue_workaround
-		echo "- Applying lowmemorykiller properties"
-		lmkd_apply
-		$MODPATH/log_service.sh
-		$MODPATH/fmiop_service.sh
-		kill -0 "$(read_pid fmiop.lmkd_loger.pid)" && uprint "
-- LMKD PSI service keeper started"
-		relmkd
-	fi
-
-	apply_uffd_gc
-
-	[ $please_reboot ] &&
-		uprint "
-- REBOOT now"
 }
 
 update_config() {
@@ -225,23 +196,66 @@ update_config() {
   Config is located at $CONFIG_INTERNAL"
 }
 
-set_permissions
+update_tools() {
+	if [ -e "$NVBASE/modules/$TAG" ]; then
+		MOD_DIR=$NVBASE/modules/$TAG
+		cp $MODPATH/action.sh $MOD_DIR
+		cp $MODPATH/fmiop.sh $MOD_DIR
+		$BIN/cp -rf $MODPATH/tools $MOD_DIR
+	fi
+}
 
-if ! [ -f $LOG_FOLDER/.redempted ]; then
-	fix_mistakes
-fi
+main() {
+	local android_version miui_v_code
+	android_version=$(getprop ro.build.version.release)
 
-if [ -e "$NVBASE/modules/$TAG" ]; then
-	MOD_DIR=$NVBASE/modules/$TAG
-	cp $MODPATH/action.sh $MOD_DIR
-	cp $MODPATH/fmiop.sh $MOD_DIR
-	$BIN/cp -rf $MODPATH/tools $MOD_DIR
-fi
+	if ! is_arm64; then
+		abort "🐢 Nope. This device is not ARM64. Aborting..."
+	fi
 
-if ! is_arm64; then
-	abort "🐢 Nope. This device is not ARM64. Aborting..."
-fi
+	printenv >$LOG_FOLDER/env.log
 
-setup_swap
+	if ! [ -f $LOG_FOLDER/.redempted ]; then
+		fix_mistakes
+	fi
+
+	kill_all_pids
+	set_permissions
+
+	if [ "$android_version" -lt 10 ]; then
+		uprint "- Your Android version is not supported. Performance
+tweaks won't be applied. Please upgrade your phone 
+to Android 10+"
+	else
+		uprint "
+- Total memory = $(free -h | awk '/^Mem:/ {print $2}')"
+		ui_print "
+- ZRAM will be set to $(free -h | awk '/^Mem:/ {print $2}') on boot."
+
+		lmkd_apply
+		apply_lmkd_tweaks && smoothie_text="& smoothie🍹tweaks"
+		echo "
+- Applying LMKD tweaks properties $smoothie_text
+		"
+		approps $MODPATH/system.prop
+		uprint "- LMKD PSI mode activated."
+		setup_swap
+		update_config
+
+		$MODPATH/log_service.sh
+		$MODPATH/fmiop_service.sh
+
+		kill -0 "$(read_pid fmiop.lmkd_loger.pid)" && uprint "
+- LMKD PSI service keeper started"
+		relmkd
+	fi
+
+	apply_uffd_gc
+	update_tools
+
+	[ $please_reboot ] &&
+		uprint "
+- REBOOT now"
+}
+
 main
-update_config
