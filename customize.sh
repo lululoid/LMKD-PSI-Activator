@@ -151,12 +151,6 @@ update_config() {
 		fi
 	}
 
-	local current_config_v last_config_v is_update current_config
-	current_config=$MODPATH/config.yaml
-	current_config_v=$(yq '.config_version' $current_config)
-	last_config_v=$(yq '.config_version' $CONFIG_INTERNAL)
-	is_update=$(echo "$current_config_v > $last_config_v" | bc -l)
-
 	if [ ! -f "$CONFIG_FILE" ] || [ ! -f "$CONFIG_INTERNAL" ]; then
 		mkdir -p $FMIOP_DIR
 		cp $current_config $CONFIG_INTERNAL
@@ -164,7 +158,15 @@ update_config() {
 		ui_print "
 - Config is located at $CONFIG_INTERNAL"
 		please_reboot=true
-	elif [ "$(echo "$last_config_v 0.6" | awk '{print ($1 <= $2) ? 1 : 0}')" -eq 1 ]; then
+	fi
+
+	local current_config_v last_config_v is_update current_config
+	current_config=$MODPATH/config.yaml
+	current_config_v=$(yq '.config_version' $current_config)
+	last_config_v=$(yq '.config_version' $CONFIG_INTERNAL)
+	is_update=$(echo "$current_config_v > $last_config_v" | bc -l)
+
+	if [ "$(echo "$last_config_v 0.6" | awk '{print ($1 <= $2) ? 1 : 0}')" -eq 1 ]; then
 		mkdir -p $FMIOP_DIR
 		cp $CONFIG_INTERNAL $CONFIG_INTERNAL.old
 		cp $current_config $CONFIG_INTERNAL
@@ -270,6 +272,7 @@ to Android 10+"
 	[ $please_reboot ] &&
 		uprint "
 - REBOOT now"
+	cp $MODPATH/module.prop $LOG_FOLDER
 }
 
 main
