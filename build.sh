@@ -56,7 +56,6 @@ update_json() {
 
 # Check if dynv.cpp has changed
 should_rebuild_dynv() {
-	local new_hash
 	new_hash=$(sha256sum dynv.cpp 2>/dev/null | awk '{print $1}')
 
 	if [[ -f "$HASH_FILE" ]]; then
@@ -66,6 +65,9 @@ should_rebuild_dynv() {
 		if [[ "$new_hash" == "$old_hash" ]]; then
 			echo "- No changes detected in dynv.cpp, skipping rebuild."
 			return 1 # No rebuild needed
+		else
+			echo "$new_hash" >"$HASH_FILE"
+			echo "- dynv.cpp changed, rebuilding..."
 		fi
 	fi
 
@@ -90,18 +92,18 @@ or our ⌯⌲ Telegram group: [**Initechzer0 Chat**](https://t.me/+ff5HBVsV8gsxO
 	echo "$message" >>"$changelog_file"
 	echo "" >>"$changelog_file"
 
-	# Get last version commit hash
-	local last_version_commit
-	last_version_commit=$(git log --grep="version=v" --pretty=format:"%H" -n 1)
+	# Include only local commits not pushed to remote
+	local local_commits
+	local_commits=$(git log @{u}..HEAD --pretty=format:"- %s (%h)" 2>/dev/null)
 
-	if [[ -n "$last_version_commit" ]]; then
-		git log --pretty=format:"- %s (%h)" --date=short "$last_version_commit"..HEAD >>"$changelog_file"
+	if [[ -n "$local_commits" ]]; then
+		echo "$local_commits" >>"$changelog_file"
 	else
-		git log --pretty=format:"- %s (%h)" --date=short >>"$changelog_file"
+		echo "- No local changes to include in changelog" >>"$changelog_file"
 	fi
 
 	echo "" >>"$changelog_file"
-	echo "- Auto-generated from Git commits" >>"$changelog_file"
+	echo "- Auto-generated from local Git commits" >>"$changelog_file"
 
 	echo "- Changelog generated: $changelog_file"
 }
@@ -141,21 +143,19 @@ build_dynv() {
 
 	if ! (
 		for ABI in arm64-v8a armeabi-v7a; do
-			if [ ! -d "system/bin/$ABI" ]; then
-				echo "- Building dynv for $ABI"
-				if [ "$ABI" == "arm64-v8a" ]; then
-					"$CPATH"/aarch64-linux-android21-clang++ -o system/bin/dynv-$ABI dynv.cpp -std=c++17 -pthread \
-						-I./yaml-cpp/include \
-						-L./yaml-cpp/build/build-android-$ABI \
-						-lyaml-cpp \
-						-static-libgcc -static-libstdc++ -llog || return 1
-				elif [ "$ABI" == "armeabi-v7a" ]; then
-					"$CPATH"/armv7a-linux-androideabi21-clang++ -o system/bin/dynv-$ABI dynv.cpp -std=c++17 -pthread \
-						-I./yaml-cpp/include \
-						-L./yaml-cpp/build/build-android-$ABI \
-						-lyaml-cpp \
-						-static-libgcc -static-libstdc++ -llog || return 1
-				fi
+			echo "- Building dynv for $ABI"
+			if [ "$ABI" == "arm64-v8a" ]; then
+				"$CPATH"/aarch64-linux-android21-clang++ -o system/bin/dynv-$ABI dynv.cpp -std=c++17 -pthread \
+					-I./yaml-cpp/include \
+					-L./yaml-cpp/build/build-android-$ABI \
+					-lyaml-cpp \
+					-static-libgcc -static-libstdc++ -llog || return 1
+			elif [ "$ABI" == "armeabi-v7a" ]; then
+				"$CPATH"/armv7a-linux-androideabi21-clang++ -o system/bin/dynv-$ABI dynv.cpp -std=c++17 -pthread \
+					-I./yaml-cpp/include \
+					-L./yaml-cpp/build/build-android-$ABI \
+					-lyaml-cpp \
+					-static-libgcc -static-libstdc++ -llog || return 1
 			fi
 		done
 	); then
@@ -164,7 +164,6 @@ build_dynv() {
 	else
 		echo "- dynv binaries built successfully."
 	fi
-	echo "$new_hash" >"$HASH_FILE"
 }
 
 # Parse arguments

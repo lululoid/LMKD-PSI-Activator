@@ -53,8 +53,6 @@ set_permissions() {
 	set_perm_recursive "$MODPATH/fmiop.sh" 0 2000 0755 0755
 	set_perm_recursive "$MODPATH/fmiop_service.sh" 0 2000 0755 0755
 	set_perm_recursive "$MODPATH/log_service.sh" 0 2000 0755 0755
-	set_perm_recursive "$MODPATH/system/bin/dynv-arm64-v8a" 0 2000 0755 0755
-	set_perm_recursive "$MODPATH/system/bin/dynv-armeabi-v7a" 0 2000 0755 0755
 }
 
 lmkd_apply() {
@@ -215,8 +213,7 @@ check_files_and_folders() {
 		$MODPATH/fmiop.sh
 		$MODPATH/fmiop_service.sh
 		$MODPATH/log_service.sh
-		$MODPATH/system/bin/dynv-arm64-v8a
-		$MODPATH/system/bin/dynv-armeabi-v7a
+		$MODPATH/system/bin/dynv
 		$MODPATH/config.yaml
 		/sdcard/Android/fmiop/config.yaml
 	"
@@ -240,15 +237,21 @@ check_files_and_folders() {
 	return 0
 }
 
+install_dynv() {
+	if ! is_arm64; then
+		mv $MODPATH/system/bin/dynv-armeabi-v7a $MODPATH/system/bin/dynv
+		rm $MODPATH/system/bin/dynv-arm64-v8a
+	else
+		mv $MODPATH/system/bin/dynv-arm64-v8a $MODPATH/system/bin/dynv
+		rm $MODPATH/system/bin/dynv-armeabi-v7a
+	fi
+
+	set_perm_recursive $MODPATH/system/bin/dynv 0 2000 0755 0755
+}
+
 main() {
 	local android_version
 	android_version=$(getprop ro.build.version.release)
-
-	if ! is_arm64; then
-		ln -sf $MODPATH/system/bin/dynv-armeabi-v7a $MODPATH/system/bin/dynv
-	else
-		ln -sf $MODPATH/system/bin/dynv-arm64-v8a $MODPATH/system/bin/dynv
-	fi
 
 	printenv >$LOG_FOLDER/env.log
 
@@ -258,6 +261,7 @@ main() {
 
 	kill_all_pids
 	set_permissions
+	install_dynv
 
 	if [ "$android_version" -lt 10 ]; then
 		uprint "- Your Android version is not supported. Performance
