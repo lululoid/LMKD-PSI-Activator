@@ -1,0 +1,18 @@
+{
+    "configurations": [
+      {
+        "name": "Android",
+        "includePath": [
+          "${workspaceFolder}/**",
+          "${env:HOME}/Android/Sdk/ndk/29.0.13113456/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include",
+          "${env:HOME}/Android/Sdk/ndk/29.0.13113456/sources/android/native_app_glue"
+        ],
+        "defines": [],
+        "compilerPath": "${env:HOME}/Android/Sdk/ndk/29.0.13113456/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang++",
+        "cStandard": "c11",
+        "cppStandard": "gnu++17",
+        "intelliSenseMode": "linux-clang-arm64"
+      }
+    ],
+    "version": 4
+  }  

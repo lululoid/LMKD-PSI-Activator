@@ -1,8 +1,0 @@
-[
-{
-  "directory": "/data/data/com.termux/files/home/Projects/LMKD-PSI-Activator",
-  "command": "/data/data/com.termux/files/usr/bin/c++   -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/dynv.dir/dynv.cpp.o -c /data/data/com.termux/files/home/Projects/LMKD-PSI-Activator/dynv.cpp",
-  "file": "/data/data/com.termux/files/home/Projects/LMKD-PSI-Activator/dynv.cpp",
-  "output": "CMakeFiles/dynv.dir/dynv.cpp.o"
-}
-]
