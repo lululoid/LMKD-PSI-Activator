@@ -86,25 +86,13 @@ apply_lmkd_tweaks() {
 	local applied=false
 	cat <<EOF
 
-- Apply smoothie🍹tweaks for LMKD?
-  Due to unknown reason. LMKD will thrash so much
+- Due to unknown reason. LMKD will thrash so much
   on your device until your phone goes slow. 
   This is simple workaround to make your phone 
   stay as smooth as possible. RECOMMENDED to apply.
-
-  Press VOLUME + to apply workaround
-  Press VOLUME - to skip
 EOF
 
-	exec 3>&-
-	set +x
-
-	while true; do
-		if get_key_event 'KEY_VOLUMEUP *DOWN'; then
-			exec 3>&1
-			set -x
-
-			cat <<EOF >>$MODPATH/system.prop
+	cat <<EOF >>$MODPATH/system.prop
 ro.lmk.kill_heaviest_task=false
 ro.lmk.psi_partial_stall_ms=60
 ro.lmk.psi_complete_stall_ms=650
@@ -112,18 +100,8 @@ ro.lmk.swap_util_max=75
 ro.lmk.thrashing_limit_decay=80
 ro.lmk.thrashing_limit=30
 EOF
-			applied=true
+	applied=true
 
-			exec 3>&-
-			set +x
-			break
-		elif get_key_event 'KEY_VOLUMEDOWN *DOWN'; then
-			break
-		fi
-	done
-	kill_capture_pid
-	exec 3>&1
-	set -x
 	[ $applied ] || return 1
 }
 
@@ -153,20 +131,21 @@ update_config() {
 		fi
 	}
 
-	if [ ! -f "$CONFIG_FILE" ] || [ ! -f "$CONFIG_INTERNAL" ]; then
-		mkdir -p $FMIOP_DIR
-		cp $current_config $CONFIG_INTERNAL
-		cp $current_config $CONFIG_FILE
-		ui_print "
-- Config is located at $CONFIG_INTERNAL"
-		please_reboot=true
-	fi
-
 	local current_config_v last_config_v is_update current_config
 	current_config=$MODPATH/config.yaml
 	current_config_v=$(yq '.config_version' $current_config)
 	last_config_v=$(yq '.config_version' $CONFIG_INTERNAL)
 	is_update=$(echo "$current_config_v > $last_config_v" | bc -l)
+
+	if [ ! -f "$CONFIG_FILE" ] || [ ! -f "$CONFIG_INTERNAL" ]; then
+		mkdir -p $FMIOP_DIR
+		cp $current_config $CONFIG_INTERNAL
+		cp $current_config $CONFIG_FILE
+		ui_print "
+- Config is located at
+  > Internal -> Android/data/$TAG/config.yaml"
+		please_reboot=true
+	fi
 
 	if [ "$(echo "$last_config_v 0.6" | awk '{print ($1 <= $2) ? 1 : 0}')" -eq 1 ]; then
 		mkdir -p $FMIOP_DIR
@@ -222,6 +201,45 @@ remove_fogimp() {
 	fi
 }
 
+check_files_and_folders() {
+	required_folders="
+		$LOG_FOLDER
+		$MODPATH
+		$MODPATH/tools
+		$MODPATH/system/bin
+		/sdcard/Android/fmiop
+	"
+
+	required_files="
+		$LOG
+		$MODPATH/fmiop.sh
+		$MODPATH/fmiop_service.sh
+		$MODPATH/log_service.sh
+		$MODPATH/system/bin/dynv-arm64-v8a
+		$MODPATH/system/bin/dynv-armeabi-v7a
+		$MODPATH/config.yaml
+		/sdcard/Android/fmiop/config.yaml
+	"
+
+	for folder in $required_folders; do
+		if [ ! -d "$folder" ]; then
+			uprint "
+- Missing folder: $folder"
+			return 1
+		fi
+	done
+
+	for file in $required_files; do
+		if [ ! -f "$file" ]; then
+			uprint "
+- Missing file: $file"
+			return 1
+		fi
+	done
+
+	return 0
+}
+
 main() {
 	local android_version
 	android_version=$(getprop ro.build.version.release)
@@ -252,9 +270,9 @@ to Android 10+"
 - ZRAM will be set to $(free -h | awk '/^Mem:/ {print $2}') on boot."
 
 		lmkd_apply
-		apply_lmkd_tweaks && smoothie_text="& smoothie🍹tweaks"
+		apply_lmkd_tweaks
 		echo "
-- Applying LMKD tweaks properties $smoothie_text
+  Applying LMKD + smoothie🍹tweaks.
 		"
 		approps $MODPATH/system.prop
 		uprint "- LMKD PSI mode activated."
@@ -277,6 +295,7 @@ to Android 10+"
 		uprint "
 - REBOOT now"
 	cp $MODPATH/module.prop $LOG_FOLDER
+	check_files_and_folders
 }
 
 main

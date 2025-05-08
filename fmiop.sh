@@ -586,7 +586,7 @@ setup_swap_size() {
 	set +x
 
 	uprint "
-⟩ Please select SWAP size 
+- Please select SWAP size 
   Press VOLUME + to use DEFAULT
   Press VOLUME - to SELECT 
   DEFAULT is 0 SWAP"
@@ -716,7 +716,7 @@ apply_uffd_gc() {
   benefits such as ZRAM compression, preventing it from being overused and
   generating a much more efficient ZRAM by having cleaner memory to compress.
 
-  Thanks to @WeirdMidas in github issue for suggestion
+  Thanks to @WeirdMidas in github for suggestion
   -> (https://github.com/lululoid/LMKD-PSI-Activator/issues/17)
 	"
 
