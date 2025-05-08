@@ -87,7 +87,7 @@ apply_lmkd_tweaks() {
 - Due to unknown reason. LMKD will thrash so much
   on your device until your phone goes slow. 
   This is simple workaround to make your phone 
-  stay as smooth as possible. RECOMMENDED to apply.
+  stay as smooth as possible.
 EOF
 
 	cat <<EOF >>$MODPATH/system.prop
@@ -183,6 +183,8 @@ update_tools() {
 		cp $MODPATH/action.sh $MOD_DIR
 		cp $MODPATH/fmiop.sh $MOD_DIR
 		$BIN/cp -rf $MODPATH/tools $MOD_DIR
+		cp $MODPATH/module.prop $LOG_FOLDER
+		cp $MODPATH/module.prop $NVBASE/modules/$TAG
 	fi
 }
 
@@ -253,52 +255,64 @@ main() {
 	local android_version
 	android_version=$(getprop ro.build.version.release)
 
-	printenv >$LOG_FOLDER/env.log
+	local unsupported_msg="
+- Your Android version is not supported.
+  Performance tweaks won't be applied.
+  Please upgrade your phone to Android 10+"
 
-	if ! [ -f $LOG_FOLDER/.redempted ]; then
+	local mem_total=$(free -h | awk '/^Mem:/ {print $2}')
+	local mem_info_msg="
+- Total memory = $mem_total"
+
+	local zram_msg="
+- ZRAM will be set to $mem_total on boot."
+
+	local tweaks_msg="
+  Applying LMKD + smoothie🍹tweaks."
+
+	local psi_started_msg="
+- LMKD PSI service keeper started"
+
+	local reboot_msg="
+- REBOOT now"
+
+	printenv > "$LOG_FOLDER/env.log"
+
+	if ! [ -f "$LOG_FOLDER/.redempted" ]; then
 		fix_mistakes
 	fi
 
 	kill_all_pids
 	set_permissions
 	install_dynv
+	update_tools
 
 	if [ "$android_version" -lt 10 ]; then
-		uprint "- Your Android version is not supported. Performance
-tweaks won't be applied. Please upgrade your phone 
-to Android 10+"
+		uprint "$unsupported_msg"
 	else
-		uprint "
-- Total memory = $(free -h | awk '/^Mem:/ {print $2}')"
-		ui_print "
-- ZRAM will be set to $(free -h | awk '/^Mem:/ {print $2}') on boot."
+		uprint "$mem_info_msg"
+		ui_print "$zram_msg"
 
 		lmkd_apply
 		apply_lmkd_tweaks
-		echo "
-  Applying LMKD + smoothie🍹tweaks.
-		"
-		approps $MODPATH/system.prop
+		echo "$tweaks_msg"
+		approps "$MODPATH/system.prop"
 		uprint "- LMKD PSI mode activated."
 		setup_swap
 		update_config
 
-		$MODPATH/log_service.sh
-		$MODPATH/fmiop_service.sh
+		"$MODPATH/log_service.sh"
+		"$MODPATH/fmiop_service.sh"
 
-		kill -0 "$(read_pid fmiop.lmkd_loger.pid)" && uprint "
-- LMKD PSI service keeper started"
+		kill -0 "$(read_pid fmiop.lmkd_loger.pid)" && uprint "$psi_started_msg"
 		relmkd
 	fi
 
 	apply_uffd_gc
-	update_tools
 	remove_fogimp
 
-	[ $please_reboot ] &&
-		uprint "
-- REBOOT now"
-	cp $MODPATH/module.prop $LOG_FOLDER
+	[ "$please_reboot" ] && uprint "$reboot_msg"
+
 	check_files_and_folders
 }
 

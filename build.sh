@@ -221,6 +221,8 @@ main() {
 	else
 		echo "- Skipping installation. Package built at: $package_name"
 	fi
+	
+	adb push "$package_name" /sdcard/Download
 }
 
 # Run the script
