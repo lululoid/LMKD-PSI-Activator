@@ -2,8 +2,9 @@
 set -e # Exit on error
 
 TAG="beta"
-INSTALL=false          # Default: No installation
-HASH_FILE=".dynv_hash" # File to store last build hash
+INSTALL=false                                  # Default: No installation
+HASH_FILE=".dynv_hash"                         # File to store last build hash
+NDK_PATH="$HOME/Android/Sdk/ndk/29.0.13113456" # Path to NDK
 
 # Root Check Function
 check_root() {
@@ -45,11 +46,12 @@ update_json() {
 	local zipUrl="${4:-https://github.com/lululoid/LMKD-PSI-Activator/releases/download/v${version}_$versionCode/fmiop-v${version}_${versionCode}-$TAG.zip}"
 	local changelog="${5:-https://github.com/lululoid/LMKD-PSI-Activator/releases/download/v${version}_${versionCode}/fmiop-v${version}_${versionCode}-changelog.md}"
 
+	temp_file=$(mktemp)
 	jq --arg code "$versionCode" \
 		--arg ver "$version" \
 		--arg zip "$zipUrl" \
 		--arg log "$changelog" \
-		'.versionCode = $code | .version = $ver | .zipUrl = $zip | .changelog = $log' "$file" | sponge "$file"
+		'.versionCode = $code | .version = $ver | .zipUrl = $zip | .changelog = $log' "$file" >"$temp_file" && mv "$temp_file" "$file"
 }
 
 # Check if dynv.cpp has changed
@@ -67,7 +69,6 @@ should_rebuild_dynv() {
 		fi
 	fi
 
-	echo "$new_hash" >"$HASH_FILE"
 	return 0 # Rebuild needed
 }
 
@@ -105,6 +106,67 @@ or our ⌯⌲ Telegram group: [**Initechzer0 Chat**](https://t.me/+ff5HBVsV8gsxO
 	echo "- Changelog generated: $changelog_file"
 }
 
+build_yaml-cpp() {
+	local abis pwd
+	abis=("arm64-v8a" "armeabi-v7a")
+	pwd=$(pwd)
+
+	cd yaml-cpp || exit
+	mkdir build 2>/dev/null || :
+	cd build || exit
+
+	for ABI in "${abis[@]}"; do
+		BUILD_DIR="build-android-$ABI"
+		if [ ! -d "$BUILD_DIR" ]; then
+			echo "- Building yaml-cpp for $ABI"
+			cmake -S . -B "$BUILD_DIR" \
+				-DCMAKE_TOOLCHAIN_FILE="$NDK_PATH/build/cmake/android.toolchain.cmake" \
+				-DANDROID_ABI="$ABI" \
+				-DANDROID_PLATFORM=android-21 \
+				-DCMAKE_BUILD_TYPE=Release \
+				-DYAML_BUILD_SHARED_LIBS=OFF ..
+			cd "$BUILD_DIR"
+			make
+			cd ..
+		else
+			echo "- yaml-cpp for $ABI already built"
+		fi
+	done
+	cd "$pwd"
+}
+
+build_dynv() {
+	CPATH=$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin
+	echo "- Building dynamic virtual memory..."
+
+	if ! (
+		for ABI in arm64-v8a armeabi-v7a; do
+			if [ ! -d "system/bin/$ABI" ]; then
+				echo "- Building dynv for $ABI"
+				if [ "$ABI" == "arm64-v8a" ]; then
+					"$CPATH"/aarch64-linux-android21-clang++ -o system/bin/dynv-$ABI dynv.cpp -std=c++17 -pthread \
+						-I./yaml-cpp/include \
+						-L./yaml-cpp/build/build-android-$ABI \
+						-lyaml-cpp \
+						-static-libgcc -static-libstdc++ -llog || return 1
+				elif [ "$ABI" == "armeabi-v7a" ]; then
+					"$CPATH"/armv7a-linux-androideabi21-clang++ -o system/bin/dynv-$ABI dynv.cpp -std=c++17 -pthread \
+						-I./yaml-cpp/include \
+						-L./yaml-cpp/build/build-android-$ABI \
+						-lyaml-cpp \
+						-static-libgcc -static-libstdc++ -llog || return 1
+				fi
+			fi
+		done
+	); then
+		echo "- Error: Failed to build dynv binaries."
+		exit 1
+	else
+		echo "- dynv binaries built successfully."
+	fi
+	echo "$new_hash" >"$HASH_FILE"
+}
+
 # Parse arguments
 while getopts ":i" opt; do
 	case "$opt" in
@@ -124,6 +186,14 @@ main() {
 
 	validate_args "$version" "$versionCode"
 
+	# Check if dynv.cpp changed before rebuilding
+	if should_rebuild_dynv; then
+		build_yaml-cpp
+		build_dynv
+	else
+		echo "- dynv.cpp unchanged, skipping rebuild."
+	fi
+
 	# Update module.prop
 	sed -i -E "s/^version=v[0-9.]+/version=v$version/; s/^versionCode=[0-9]+/versionCode=$versionCode/" module.prop
 
@@ -135,14 +205,6 @@ main() {
 	# Generate Changelog
 	generate_changelog "$version" "$versionCode"
 
-	# Check if dynv.cpp changed before rebuilding
-	if should_rebuild_dynv; then
-		echo "- Building dynamic virtual memory..."
-		g++ -o system/bin/dynv dynv.cpp -std=c++17 -pthread \
-			./libyaml-cpp.a -static-libgcc -static-libstdc++ \
-			-L"$PREFIX"/aarch64-linux-android/lib -llog
-	fi
-
 	local package_name="packages/${module_name}-v${version}_${versionCode}-$TAG.zip"
 
 	# 🧹 Delete old packages for this module
@@ -150,10 +212,10 @@ main() {
 	find packages/ -type f -name "${module_name}-v*.zip" ! -name "$(basename "$package_name")" -delete
 
 	echo "- Creating zip package: $package_name"
-	7za a "$package_name" \
+	7za a -mx=9 -bd -y "$package_name" \
 		META-INF fmiop.sh customize.sh module.prop "*service.sh" \
 		uninstall.sh action.sh config.yaml \
-		system/bin tools
+		system/bin tools >/dev/null 2>&1
 
 	if $INSTALL; then
 		check_root "You need ROOT to install this module" || su -c "magisk --install-module $package_name"

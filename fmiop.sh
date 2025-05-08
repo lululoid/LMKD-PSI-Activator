@@ -432,6 +432,8 @@ update_pressure_report() {
 		swap_status="❌ Not Running"
 	fi
 
+	cp $LOG_FOLDER/module.prop $MODPATH
+
 	# Use sed to replace the values correctly
 	sed -i -E \
 		-e "s/(Memory pressure[^:]*: )[^,]+,/\1$pressure_emoji$memory_pressure,/" \
@@ -543,6 +545,13 @@ get_key_event() {
 	[ -n "$result" ] && sleep 0.25 && return 0 || return 1
 }
 
+kill_capture_pid() {
+	if [ -n "$capture_pid" ]; then
+		kill -9 $capture_pid
+		unset capture_pid
+	fi
+}
+
 # Function to handle SWAP size logic
 handle_swap_size() {
 	if [ $count -eq 0 ]; then
@@ -593,7 +602,7 @@ setup_swap_size() {
 			break
 		fi
 	done
-	kill -9 $capture_pid
+	kill_capture_pid
 }
 
 make_swap() {

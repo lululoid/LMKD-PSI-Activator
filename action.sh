@@ -57,7 +57,7 @@ remove_previous_swap() {
 		uprint "
 - Error, SWAP_FILENAME variable is missing"
 	fi
-	kill -9 $capture_pid
+	kill_capture_pid
 }
 
 restart_dynv() {

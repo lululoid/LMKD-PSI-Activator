@@ -26,6 +26,7 @@ unzip -o "$ZIPFILE" -x 'META-INF/*' -d "$MODPATH" >&2
 alias uprint="ui_print"
 alias swapon='$BIN/swapon'
 
+# shellcheck disable=SC1091
 . $MODPATH/fmiop.sh
 
 fix_mistakes() {
@@ -52,7 +53,8 @@ set_permissions() {
 	set_perm_recursive "$MODPATH/fmiop.sh" 0 2000 0755 0755
 	set_perm_recursive "$MODPATH/fmiop_service.sh" 0 2000 0755 0755
 	set_perm_recursive "$MODPATH/log_service.sh" 0 2000 0755 0755
-	set_perm_recursive "$MODPATH/system/bin/dynv" 0 2000 0755 0755
+	set_perm_recursive "$MODPATH/system/bin/dynv-arm64-v8a" 0 2000 0755 0755
+	set_perm_recursive "$MODPATH/system/bin/dynv-armeabi-v7a" 0 2000 0755 0755
 }
 
 lmkd_apply() {
@@ -119,7 +121,7 @@ EOF
 			break
 		fi
 	done
-	kill -9 $capture_pid
+	kill_capture_pid
 	exec 3>&1
 	set -x
 	[ $applied ] || return 1
@@ -225,7 +227,9 @@ main() {
 	android_version=$(getprop ro.build.version.release)
 
 	if ! is_arm64; then
-		abort "🐢 Nope. This device is not ARM64. Aborting..."
+		ln -sf $MODPATH/system/bin/dynv-armeabi-v7a $MODPATH/system/bin/dynv
+	else
+		ln -sf $MODPATH/system/bin/dynv-arm64-v8a $MODPATH/system/bin/dynv
 	fi
 
 	printenv >$LOG_FOLDER/env.log
