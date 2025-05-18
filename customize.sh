@@ -63,15 +63,16 @@ lmkd_apply() {
 		cat <<EOF >$MODPATH/system.prop
 ro.config.low_ram=true
 ro.lmk.use_psi=true
-ro.lmk.debug=false
 ro.lmk.use_minfree_levels=false
 EOF
 	else
 		cat <<EOF >$MODPATH/system.prop
 ro.config.low_ram=false
 ro.lmk.use_psi=true
-ro.lmk.debug=false
 ro.lmk.use_minfree_levels=false
+EOF
+		cat <<EOF >>$MODPATH/system.prop
+ro.lmk.debug=false
 EOF
 	fi
 
@@ -92,9 +93,6 @@ EOF
 
 	cat <<EOF >>$MODPATH/system.prop
 ro.lmk.kill_heaviest_task=false
-ro.lmk.psi_partial_stall_ms=60
-ro.lmk.psi_complete_stall_ms=650
-ro.lmk.swap_util_max=75
 ro.lmk.thrashing_limit_decay=80
 ro.lmk.thrashing_limit=30
 EOF
@@ -276,7 +274,7 @@ main() {
 	local reboot_msg="
 - REBOOT now"
 
-	printenv > "$LOG_FOLDER/env.log"
+	printenv >"$LOG_FOLDER/env.log"
 
 	if ! [ -f "$LOG_FOLDER/.redempted" ]; then
 		fix_mistakes
