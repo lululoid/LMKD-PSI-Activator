@@ -708,7 +708,9 @@ setup_swap() {
 }
 
 apply_uffd_gc() {
-	uprint " 
+	# Check if the kernel has CONFIG_USERFAULTFD=y
+	if zcat /proc/config.gz 2>/dev/null | grep -q "^CONFIG_USERFAULTFD=y"; then
+		uprint " 
 - Apllying UFFD GC tweak
   What are these GCs (garbage collection)? Basically, they are Garbage
   Collectors focused on freeing up memory pages. The focus of these GCs
@@ -718,18 +720,26 @@ apply_uffd_gc() {
 
   Thanks to @WeirdMidas in github for suggestion
   -> (https://github.com/lululoid/LMKD-PSI-Activator/issues/17)
+  Great, your kernel supports USERFAULTFD.
+  Now your garbage collection will be modern (UFFD GC).
 	"
+	
+		resetprop ro.dalvik.vm.enable_uffd_gc true && {
+			uprint "  › UFFD GC V1 is activated." || loger "UFFD GC V1 is activated."
+		}
 
-	resetprop ro.dalvik.vm.enable_uffd_gc true && {
-		uprint "  › UFFD GC V1 is activated." || loger "UFFD GC V1 is activated."
-	}
-
-	limit=60
-	until cmd device_config put runtime_native_boot enable_uffd_gc_2 true && {
-		uprint "  › UFFD GC V2 is activated." || loger "UFFD GC V2 is activated."
-	}; do
-		limit=$((limit - 1))
-		[ $limit -eq 0 ] && loger e "Waiting for $limit seconds, failed to apply UFFD GC 2" && break
-		sleep 1
-	done &
+		# Handling applying on boot by waiting for device_config service to be ready
+		limit=60
+		until cmd device_config put runtime_native_boot enable_uffd_gc_2 true && {
+			uprint "  › UFFD GC V2 is activated." || loger "UFFD GC V2 is activated."
+		}; do
+			limit=$((limit - 1))
+			[ $limit -eq 0 ] && loger e "Waiting for $limit seconds, failed to apply UFFD GC 2" && break
+			sleep 1
+		done &
+	else
+		uprint "
+- Too bad, your kernel does not support USERFAULTFD.
+  Falling back to traditional garbage collection."
+	fi
 }
