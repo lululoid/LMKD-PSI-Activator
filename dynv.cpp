@@ -1,9 +1,14 @@
-#include <algorithm>
 #include <android/log.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <yaml-cpp/yaml.h>
+
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
 #include <csignal>
+#include <cstdarg>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
@@ -16,12 +21,18 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
-#include <sys/stat.h>
 #include <thread>
-#include <unistd.h>
+#include <unordered_set>
 #include <utility>
 #include <vector>
-#include <yaml-cpp/yaml.h>
+
+enum class LogType { ONCE, ALWAYS, QUIET };
+enum LogPriority {
+  DEBUG = ANDROID_LOG_DEBUG,
+  INFO = ANDROID_LOG_INFO,
+  WARN = ANDROID_LOG_WARN,
+  ERROR = ANDROID_LOG_ERROR
+};
 
 #define SWAP_PROC_FILE "/proc/swaps"
 #define ZRAM_DIR "/dev/block"
@@ -41,8 +52,7 @@ extern void dyn_swap_service();
 extern void fmiop();
 
 atomic<bool> running(true);
-atomic<bool> waiting_for_swapoff(true);
-atomic<bool> sleeper_kept_alive(true);
+atomic<bool> is_swapoff_session{false};
 atomic<bool> sleeper_alive(false);
 vector<string> swapoff_tracker, active_swaps;
 mutex safe_thread_mutex;
@@ -57,15 +67,13 @@ const string SWAP_FILE = "fmiop_swap.";
  * Converts any type to string using stringstream.
  */
 template <typename T>
-string to_string_generic(const T &val)
-{
+string to_string_generic(const T &val) {
   ostringstream oss;
-  oss << boolalpha << val; // handle bool as "true"/"false"
+  oss << boolalpha << val;  // handle bool as "true"/"false"
   return oss.str();
 }
 
-string &get_config_file()
-{
+string &get_config_file() {
   static string path = "/data/adb/fmiop/config.yaml";
   return path;
 }
@@ -74,22 +82,18 @@ string &get_config_file()
  * Reads a value from a YAML config file with a default fallback.
  */
 template <typename T>
-T read_config(const string &key_path, T default_value)
-{
-  try
-  {
+T read_config(const string &key_path, T default_value) {
+  try {
     YAML::Node node = YAML::LoadFile(get_config_file());
     size_t pos = 0, found;
     string clean_key_path =
         (key_path[0] == '.') ? key_path.substr(1) : key_path;
 
-    while ((found = clean_key_path.find('.', pos)) != string::npos)
-    {
+    while ((found = clean_key_path.find('.', pos)) != string::npos) {
       string key = clean_key_path.substr(pos, found - pos);
       node = node[key];
 
-      if (!node)
-      {
+      if (!node) {
         ALOGW("Config key not found: %s. Using default: %s", key_path.c_str(),
               to_string_generic(default_value).c_str());
         return default_value;
@@ -100,8 +104,7 @@ T read_config(const string &key_path, T default_value)
     string finalKey = clean_key_path.substr(pos);
     node = node[finalKey];
 
-    if (!node)
-    {
+    if (!node) {
       ALOGW("Config key not found: %s. Using default: %s", key_path.c_str(),
             to_string_generic(default_value).c_str());
       return default_value;
@@ -111,16 +114,46 @@ T read_config(const string &key_path, T default_value)
     ALOGI("Config [%s] = %s", key_path.c_str(),
           to_string_generic(value).c_str());
     return value;
-  }
-  catch (const exception &e)
-  {
+  } catch (const exception &e) {
     ALOGE("Error reading config: %s", e.what());
     return default_value;
   }
 }
 
-struct Config
-{
+class LogManager {
+ public:
+  template <typename... Args>
+  void log(LogType type, LogPriority level, const string &key,
+           const char *format, Args... args) {
+    if (type == LogType::QUIET) return;
+
+    if (type == LogType::ONCE && once_logged.find(key) != once_logged.end()) {
+      return;
+    }
+
+    __android_log_print(static_cast<int>(level), LOG_TAG, format, args...);
+
+    if (type == LogType::ONCE) {
+      once_logged.insert(key);
+    }
+  }
+
+  // Overloaded function with default parameters
+  template <typename... Args>
+  void log(const string &key, const char *format, Args... args) {
+    log(key, LogType::ALWAYS, LogPriority::INFO, format, args...);
+  }
+
+  void reset(const string &key) { once_logged.erase(key); }
+
+  void reset_all() { once_logged.clear(); }
+
+ private:
+  unordered_set<string> once_logged;
+};
+
+static LogManager log_manager;
+struct Config {
   static inline float CONFIG_VERSION = read_config(".config_version", -1.0);
   static inline int SWAPPINESS_MAX =
       read_config(".dynamic_swappiness.swappiness_range.max", 100);
@@ -159,12 +192,10 @@ struct Config
 /**
  * Reads the current swappiness value from the system.
  */
-int read_swappiness()
-{
+int read_swappiness() {
   ifstream file("/proc/sys/vm/swappiness");
   int swappiness;
-  if (file >> swappiness)
-  {
+  if (file >> swappiness) {
     return swappiness;
   }
   return -1;
@@ -173,13 +204,12 @@ int read_swappiness()
 /**
  * Writes a new swappiness value to the system.
  */
-void write_swappiness(int value)
-{
+void write_swappiness(int value) {
   ofstream file("/proc/sys/vm/swappiness");
-  if (!file)
-  {
-    ALOGE("Error: Unable to write to /proc/sys/vm/swappiness. Check "
-          "permissions.");
+  if (!file) {
+    ALOGE(
+        "Error: Unable to write to /proc/sys/vm/swappiness. Check "
+        "permissions.");
     return;
   }
   file << value;
@@ -189,37 +219,30 @@ void write_swappiness(int value)
  * Reads a specific pressure metric from /proc/pressure/<resource>.
  */
 double read_pressure(const string &resource, const string &level,
-                     const string &key)
-{
+                     const string &key) {
   string file_path = "/proc/pressure/" + resource;
   ifstream file(file_path);
 
-  if (!file.is_open())
-  {
+  if (!file.is_open()) {
     ALOGE("Error: Unable to open %s", file_path.c_str());
     return nan("");
   }
 
   string line;
-  while (getline(file, line))
-  {
+  while (getline(file, line)) {
     istringstream iss(line);
     string word;
     iss >> word;
 
-    if (word == level)
-    {
+    if (word == level) {
       string metric;
-      while (iss >> metric)
-      {
+      while (iss >> metric) {
         size_t pos = metric.find('=');
-        if (pos != string::npos)
-        {
+        if (pos != string::npos) {
           string metric_key = metric.substr(0, pos);
           string metric_value = metric.substr(pos + 1);
 
-          if (metric_key == key)
-          {
+          if (metric_key == key) {
             return stod(metric_value);
           }
         }
@@ -232,8 +255,7 @@ double read_pressure(const string &resource, const string &level,
 /**
  * Handles termination signals.
  */
-void signal_handler(int signal)
-{
+void signal_handler(int signal) {
   ALOGI("Received signal %d, exiting...", signal);
   running = false;
   exit(signal);
@@ -246,25 +268,19 @@ void signal_handler(int signal)
  * @param pid_name The name associated with the PID.
  * @param pid_value The PID to be saved.
  */
-void save_pid(const string &pid_name, int pid_value)
-{
+void save_pid(const string &pid_name, int pid_value) {
   vector<string> lines;
   string line;
   bool found = false;
 
   // Open the PID_DB file for reading.
   ifstream infile(PID_DB);
-  if (infile)
-  {
-    while (getline(infile, line))
-    {
+  if (infile) {
+    while (getline(infile, line)) {
       // Check if the line starts with "pid_name="
-      if (line.compare(0, pid_name.size() + 1, pid_name + "=") != 0)
-      {
+      if (line.compare(0, pid_name.size() + 1, pid_name + "=") != 0) {
         lines.push_back(line);
-      }
-      else
-      {
+      } else {
         found = true;
       }
     }
@@ -276,14 +292,12 @@ void save_pid(const string &pid_name, int pid_value)
 
   // Open PID_DB for writing (this overwrites the file).
   ofstream outfile(PID_DB);
-  if (!outfile)
-  {
+  if (!outfile) {
     ALOGE("Error: Unable to open %s for writing.", PID_DB.c_str());
     return;
   }
 
-  for (const auto &l : lines)
-  {
+  for (const auto &l : lines) {
     outfile << l << "\n";
   }
   outfile.close();
@@ -293,11 +307,9 @@ void save_pid(const string &pid_name, int pid_value)
 }
 
 // Function to get the smallest priority of active ZRAM swaps
-int get_smlst_priority()
-{
+int get_smlst_priority() {
   ifstream file(SWAP_PROC_FILE);
-  if (!file)
-  {
+  if (!file) {
     ALOGE("Error: Unable to open %s", SWAP_PROC_FILE);
     return -1;
   }
@@ -308,26 +320,20 @@ int get_smlst_priority()
   // Skip the first line (header)
   getline(file, line);
 
-  while (getline(file, line))
-  {
+  while (getline(file, line)) {
     istringstream iss(line);
     string device;
     int priority;
     string temp;
 
     // Extract values: device name is first, priority is the 5th column
-    for (int i = 0; i < 5; ++i)
-    {
-      if (!(iss >> temp))
-      {
+    for (int i = 0; i < 5; ++i) {
+      if (!(iss >> temp)) {
         break;
       }
-      if (i == 0)
-      {
+      if (i == 0) {
         device = temp;
-      }
-      else if (i == 4)
-      {
+      } else if (i == 4) {
         priority = stoi(temp);
       }
     }
@@ -335,8 +341,7 @@ int get_smlst_priority()
     priorities.push_back(priority);
   }
 
-  if (priorities.empty())
-  {
+  if (priorities.empty()) {
     ALOGW("No active swaps found.");
     return 32767;
   }
@@ -345,71 +350,54 @@ int get_smlst_priority()
 }
 
 // Function to check if a ZRAM device is active
-bool is_active(const string &device)
-{
+bool is_active(const string &device) {
   ifstream file(SWAP_PROC_FILE);
-  if (!file)
-  {
+  if (!file) {
     ALOGE("Error: Unable to open %s", SWAP_PROC_FILE);
     return false;
   }
 
   string line;
-  while (getline(file, line))
-  {
-    if (line.find(device) != string::npos)
-    {
+  while (getline(file, line)) {
+    if (line.find(device) != string::npos) {
       return true;
     }
   }
   return false;
 }
 
-pair<vector<string>, vector<string>> get_available_swap()
-{
+pair<vector<string>, vector<string>> get_available_swap() {
   vector<string> swap_files, zram_devices;
   vector<string> dir_list = {SWAP_DIR, ZRAM_DIR};
 
-  for (const auto &dir : dir_list)
-  {
-    if (!fs::exists(dir))
-    {
+  for (const auto &dir : dir_list) {
+    if (!fs::exists(dir)) {
       ALOGW("Directory does not exist: %s", dir.c_str());
       continue;
     }
-    if (!fs::is_directory(dir))
-    {
+    if (!fs::is_directory(dir)) {
       ALOGW("Path is not a directory: %s", dir.c_str());
       continue;
     }
 
-    for (const auto &entry : fs::directory_iterator(dir))
-    {
+    for (const auto &entry : fs::directory_iterator(dir)) {
       bool swap_found = false;
 
-      if (entry.is_directory())
-        continue;
+      if (entry.is_directory()) continue;
 
       string pathStr = entry.path().string();
-      if (is_active(pathStr))
-      {
+      if (is_active(pathStr)) {
         ALOGI("ACTIVE SWAP detected: %s", pathStr.c_str());
-      }
-      else
-      {
-        if (pathStr.find("swap") != string::npos)
-        {
+      } else {
+        if (pathStr.find("swap") != string::npos) {
           swap_files.push_back(pathStr);
           swap_found = true;
-        }
-        else if (pathStr.find("zram") != string::npos)
-        {
+        } else if (pathStr.find("zram") != string::npos) {
           zram_devices.push_back(pathStr);
           swap_found = true;
         }
 
-        if (swap_found)
-        {
+        if (swap_found) {
           ALOGD("INACTIVE SWAP found: %s", pathStr.c_str());
         }
       }
@@ -417,21 +405,18 @@ pair<vector<string>, vector<string>> get_available_swap()
   }
 
   // ✅ **Sorting logic**
-  auto extract_number = [](const string &s) -> int
-  {
+  auto extract_number = [](const string &s) -> int {
     size_t pos = s.find_last_not_of("0123456789");
     return (pos != string::npos) ? stoi(s.substr(pos + 1)) : -1;
   };
 
   sort(swap_files.begin(), swap_files.end(),
-       [&](const string &a, const string &b)
-       {
+       [&](const string &a, const string &b) {
          return extract_number(a) > extract_number(b);
        });
 
   sort(zram_devices.begin(), zram_devices.end(),
-       [&](const string &a, const string &b)
-       {
+       [&](const string &a, const string &b) {
          return extract_number(a) > extract_number(b);
        });
 
@@ -442,71 +427,61 @@ pair<vector<string>, vector<string>> get_available_swap()
   available_swaps.insert(available_swaps.end(), zram_devices.begin(),
                          zram_devices.end());
 
-  for (const auto &swap : available_swaps)
-  {
+  for (const auto &swap : available_swaps) {
     ALOGD("Available SWAP: %s", swap.c_str());
   }
 
   return {zram_devices, swap_files};
 }
 
-vector<string> get_active_swap()
-{
+vector<string> get_active_swap() {
   string line;
-  vector<pair<string, long>> swaps; // Store (device, usage)
+  vector<pair<string, long>> swaps;  // Store (device, usage)
   ifstream file(SWAP_PROC_FILE);
 
-  if (!file)
-  {
+  if (!file) {
     ALOGE("Error: Unable to open %s", SWAP_PROC_FILE);
-    return {}; // Return empty if file can't be opened
+    return {};  // Return empty if file can't be opened
   }
 
   // Skip header
   getline(file, line);
 
-  while (getline(file, line))
-  {
+  while (getline(file, line)) {
     istringstream iss(line);
     string device;
-    long size, used; // We only care about "used"
+    long size, used;  // We only care about "used"
     iss >> device >> size >> used;
 
-    if (!device.empty())
-    {
+    if (!device.empty()) {
       swaps.emplace_back(device, used);
     }
   }
 
   // Sort swaps by usage (descending order)
   sort(swaps.begin(), swaps.end(),
-       [](const pair<string, long> &a, const pair<string, long> &b)
-       {
-         return a.second > b.second; // Biggest usage first
+       [](const pair<string, long> &a, const pair<string, long> &b) {
+         return a.second > b.second;  // Biggest usage first
        });
 
   // Extract sorted device names
   vector<string> active_swaps;
-  for (const auto &swap : swaps)
-  {
+  for (const auto &swap : swaps) {
     active_swaps.push_back(swap.first);
   }
 
   return active_swaps;
 }
 
-pair<int, int> get_swap_usage(const string &device)
-{
+pair<int, int> get_swap_usage(const string &device) {
   string line;
   ifstream proc_file(SWAP_PROC_FILE);
 
-  getline(proc_file, line); // Skip header line
+  getline(proc_file, line);  // Skip header line
 
   int size = 0, used = 0;
-  while (getline(proc_file, line))
-  {
-    if (line.find(device) != string::npos)
-    {
+  while (getline(proc_file, line)) {
+    if (line.find(device) != string::npos) {
       istringstream iss(line);
       string temp;
       iss >> temp >> temp >> size >> used;
@@ -514,41 +489,37 @@ pair<int, int> get_swap_usage(const string &device)
     }
   }
 
-  if (size == 0)
-  {
+  if (size == 0) {
     lock_guard<mutex> lock(safe_thread_mutex);
     active_swaps = get_active_swap();
     available_swaps = get_available_swap();
 
     ALOGE("Error: Could not determine size of %s", device.c_str());
 
-    return {0, -1}; // Return -1% to indicate error
+    return {0, -1};  // Return -1% to indicate error
   }
 
   int used_percentage = (used * 100) / size;
   int used_mb = (used / 1024);
-  return {used_mb, used_percentage}; // Return {used MB, percentage}
+  return {used_mb, used_percentage};  // Return {used MB, percentage}
 }
 
-vector<string> get_lusg_swaps()
-{
+vector<string> get_lusg_swaps() {
   string line;
   ifstream proc_file(SWAP_PROC_FILE);
   vector<string> low_usage_swaps;
 
-  getline(proc_file, line); // Skip header line
+  getline(proc_file, line);  // Skip header line
 
   int used = 0;
   string device;
-  while (getline(proc_file, line))
-  {
+  while (getline(proc_file, line)) {
     istringstream iss(line);
     string temp;
     iss >> device >> temp >> temp >> used;
     int used_mb = (used / 1024);
 
-    if (used_mb < 10)
-    {
+    if (used_mb < 10) {
       low_usage_swaps.push_back(device);
     }
   }
@@ -556,11 +527,9 @@ vector<string> get_lusg_swaps()
   return low_usage_swaps;
 }
 
-int get_memory_pressure()
-{
+int get_memory_pressure() {
   FILE *fp = popen("free -b", "r");
-  if (!fp)
-  {
+  if (!fp) {
     perror("popen failed");
     return -1;
   }
@@ -572,20 +541,16 @@ int get_memory_pressure()
   // Skip the header
   fgets(buffer, sizeof(buffer), fp);
 
-  while (fgets(buffer, sizeof(buffer), fp))
-  {
+  while (fgets(buffer, sizeof(buffer), fp)) {
     istringstream iss(buffer);
     string label;
     long used = 0, temp;
 
     iss >> label;
-    if (label == "Mem:")
-    {
+    if (label == "Mem:") {
       iss >> temp >> used;
       mem_used = used;
-    }
-    else if (label == "Swap:")
-    {
+    } else if (label == "Swap:") {
       iss >> temp >> used;
       swap_used = used;
     }
@@ -595,102 +560,81 @@ int get_memory_pressure()
 
   long total_used = mem_used + swap_used;
 
-  if (total_used == 0)
-    return 0;
+  if (total_used == 0) return 0;
 
   return static_cast<int>((mem_used * 100) / total_used);
 }
 
 template <typename T>
-bool contains(const string &value, vector<T> &vector_data)
-{
+bool contains(const string &value, vector<T> &vector_data) {
   return find(vector_data.begin(), vector_data.end(), value) !=
          vector_data.end();
 }
 
 template <typename T>
-void remove_element(const string &element, vector<T> *elements)
-{
+void remove_element(const string &element, vector<T> *elements) {
   lock_guard<mutex> lock(safe_thread_mutex);
   elements->erase(remove(elements->begin(), elements->end(), element),
                   elements->end());
 }
 
 template <typename T>
-void safe_push_back(const string &value, vector<T> &elements)
-{
+void safe_push_back(const string &value, vector<T> &elements) {
   lock_guard<mutex> lock(safe_thread_mutex);
   elements.push_back(value);
 }
 
 // Function to perform swapoff on a single device
-void swapoff_th(const string &device)
-{
+void swapoff_th(const string &device) {
   string command = "/system/bin/swapoff " + device;
 
-  if (system(command.c_str()) == 0)
-  {
+  if (system(command.c_str()) == 0) {
     ALOGI("Swap: %s is turned off.", device.c_str());
-    if (device.find("zram") != string::npos)
-    {
+    if (device.find("zram") != string::npos) {
       safe_push_back(device, available_swaps.first);
-    }
-    else
-    {
+    } else {
       safe_push_back(device, available_swaps.second);
     }
     remove_element(device, &swapoff_tracker);
     remove_element(device, &active_swaps);
-  }
-  else
-  {
+  } else {
     remove_element(device, &swapoff_tracker);
     ALOGE("Failed: Turn off %s", device.c_str());
   }
 }
 
 bool swapoff_(const string &device, vector<thread> &threads,
-              optional<string> message = nullopt)
-{
+              optional<string> message = nullopt) {
   bool cntn_the_swap = contains(device, swapoff_tracker);
 
-  if (!cntn_the_swap)
-  {
+  if (!cntn_the_swap) {
     ALOGI("[THREAD] Swapoff: %s. %s", device.c_str(), message->c_str());
     safe_push_back(device, swapoff_tracker);
     threads.emplace_back(swapoff_th, device);
     return true;
-  }
-  else
-  {
+  } else {
     return false;
   }
 }
 
-bool swapon(const string device, int priority)
-{
+bool swapon(const string device, int priority) {
   string command =
       "/system/bin/swapon -p " + to_string(priority) + " " + device;
 
-  if (system(command.c_str()) == 0)
-  {
+  if (system(command.c_str()) == 0) {
     ALOGI("SWAPON: %s, priority: %d", device.c_str(), priority);
 
     return true;
-  }
-  else
-  {
+  } else {
     ALOGE("Failed: turn on swap %s", device.c_str());
 
     return false;
   }
 }
 
-bool is_doze_mode()
-{
+bool is_doze_mode() {
   FILE *pipe = popen("dumpsys deviceidle get deep", "r");
-  if (!pipe)
-  {
+  if (!pipe) {
     cerr << "Failed to check Doze Mode!" << endl;
     return false;
   }
@@ -698,8 +642,7 @@ bool is_doze_mode()
   char buffer[128];
   string result = "";
 
-  while (fgets(buffer, sizeof(buffer), pipe) != nullptr)
-  {
+  while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
     result += buffer;
   }
 
@@ -712,11 +655,9 @@ bool is_doze_mode()
   return (result == "IDLE");
 }
 
-bool is_sleep_mode()
-{
+bool is_sleep_mode() {
   FILE *pipe = popen("dumpsys power", "r");
-  if (!pipe)
-  {
+  if (!pipe) {
     cerr << "Failed to check Sleep Mode!" << endl;
     return false;
   }
@@ -724,8 +665,7 @@ bool is_sleep_mode()
   char buffer[128];
   string result = "";
 
-  while (fgets(buffer, sizeof(buffer), pipe) != nullptr)
-  {
+  while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
     result += buffer;
   }
 
@@ -735,36 +675,62 @@ bool is_sleep_mode()
   return (result.find("mWakefulness=Asleep") != string::npos);
 }
 
-void sleeper(int n, function<void()> callback = nullptr,
-             function<void()> callback1 = nullptr)
-{
+void sleeper(int seconds, function<void()> on_complete = nullptr,
+             function<bool()> interrupt_check = nullptr) {
   sleeper_alive = true;
-  bool skip = false;
+  bool interrupted = false;
+  log_manager.log(LogType::ALWAYS, LogPriority::INFO, "",
+                  "Sleep for %d seconds...", seconds);
 
-  for (size_t i = 0; i < n * 10 && sleeper_kept_alive; ++i)
-  {
-    if (callback1)
-    {
-      callback1();
-      skip = true;
+  for (int i = 0; i < seconds * 10; ++i) {
+    this_thread::sleep_for(chrono::milliseconds(100));
+
+    if (interrupt_check && interrupt_check()) {
+      interrupted = true;
+      break;
     }
-    this_thread::sleep_for(chrono::milliseconds(n));
   }
 
-  if (callback && !skip)
-  {
-    callback();
+  if (!interrupted && on_complete) {
+    log_manager.log(LogType::ALWAYS, LogPriority::DEBUG, "sleeper",
+                    "Sleep completed.");
+    on_complete();
   }
 
-  sleeper_kept_alive = true;
   sleeper_alive = false;
+}
+
+void start_swapoff_timer_if_idle(int wait_timeout) {
+  if (sleeper_alive || !is_sleep_mode() || is_swapoff_session) return;
+  thread([=] {
+    sleeper(
+        wait_timeout,
+        [] {
+          is_swapoff_session = true;
+          log_manager.log(LogType::ONCE, LogPriority::INFO, "swapoff_session",
+                          "Swapoff session started...");
+          log_manager.reset("swapoff_timer");
+        },
+        [] {
+          if (!is_sleep_mode()) {
+            log_manager.log(LogType::ALWAYS, LogPriority::INFO, "",
+                            "Device woke before timeout, swapoff canceled.");
+            log_manager.reset("swapoff_timer");
+            log_manager.reset("swapoff_session");
+            return true;
+          }
+          return false;
+        });
+  }).detach();
+
+  log_manager.log(LogType::ONCE, LogPriority::INFO, "swapoff timer",
+                  "Idle detected. Timer for swapoff initiated...");
 }
 
 /**
  * Dynamic swappiness adjustment service.
  */
-void dyn_swap_service()
-{
+void dyn_swap_service() {
   float CONFIG_VERSION = Config::CONFIG_VERSION;
   int SWAPPINESS_MAX = Config::SWAPPINESS_MAX;
   int SWAPPINESS_MIN = Config::SWAPPINESS_MIN;
@@ -795,24 +761,21 @@ void dyn_swap_service()
 
   int last_swappiness = read_swappiness();
   int new_swappiness = SWAPPINESS_MAX;
-  int wait_timeout = SWAP_DEACTIVATION_TIME * 60;
+  int wait_timeout = SWAP_DEACTIVATION_TIME;
   int activation_threshold, deactivation_threshold, lst_scnd_act_threshold,
       priority;
-  bool unbounded = true, scnd_log = true;
+  bool unbounded = true;
   bool is_condition_met, kill_low_swap, in_pressure;
   bool threshold_psi = THRESHOLD_TYPE == "psi";
   bool threshold_mem_pressure = THRESHOLD_TYPE == "mem_pressure";
-  bool is_swapoff_session = (!DEACTIVATE_IN_SLEEP) ? true : false;
+  is_swapoff_session = (!DEACTIVATE_IN_SLEEP) ? true : false;
 
   ALOGI("Config version: %.2f", CONFIG_VERSION);
 
-  while (running)
-  {
-    if (!is_doze_mode())
-    {
+  while (running) {
+    if (!is_doze_mode()) {
       // Choosing threshold type based on config or if PSI is not available
-      if (threshold_psi)
-      {
+      if (threshold_psi) {
         double memory_metric = read_pressure("memory", "some", "avg60");
         double cpu_metric = read_pressure("cpu", "some", "avg10");
         double io_metric = read_pressure("io", "some", "avg60");
@@ -820,130 +783,81 @@ void dyn_swap_service()
                       cpu_metric > CPU_PRESSURE_THRESHOLD ||
                       memory_metric > MEMORY_PRESSURE_THRESHOLD;
 
-        if (isnan(memory_metric) || isnan(cpu_metric) || isnan(io_metric))
-        {
-          ALOGE("Error reading pressure metrics. Switching to mem_pressure "
-                "mode.");
+        if (isnan(memory_metric) || isnan(cpu_metric) || isnan(io_metric)) {
+          ALOGE(
+              "Error reading pressure metrics. Switching to mem_pressure "
+              "mode.");
           THRESHOLD_TYPE = "mem_pressure";
           threshold_psi = THRESHOLD_TYPE == "psi";
           threshold_mem_pressure = THRESHOLD_TYPE == "mem_pressure";
         }
-      }
-      else if (threshold_mem_pressure)
-      {
+      } else if (threshold_mem_pressure) {
         int memory_pressure = get_memory_pressure();
         in_pressure = memory_pressure <= MEMORY_PRESSURE_THRESHOLD_ALT;
 
-        if (in_pressure)
-        {
-          if (!in_pressure_logged)
-          {
-            ALOGI("Memory pressure %d < %d. Threshold reached. Changing "
-                  "swappiness.",
-                  memory_pressure, MEMORY_PRESSURE_THRESHOLD_ALT);
+        if (in_pressure) {
+          if (!in_pressure_logged) {
+            ALOGI(
+                "Memory pressure %d < %d. Threshold reached. Changing "
+                "swappiness.",
+                memory_pressure, MEMORY_PRESSURE_THRESHOLD_ALT);
             in_pressure_logged = true;
           }
-        }
-        else
-        {
+        } else {
           in_pressure_logged = false;
         }
       }
 
-      if (in_pressure)
-      {
+      if (in_pressure) {
         new_swappiness = max(SWAPPINESS_MIN, new_swappiness - SWAPPINESS_STEP);
         unbounded = true;
-      }
-      else
-      {
+      } else {
         new_swappiness = min(SWAPPINESS_MAX, new_swappiness + SWAPPINESS_STEP);
         unbounded = !PRESSURE_BINDING;
       }
 
-      if (new_swappiness != last_swappiness)
-      {
+      if (new_swappiness != last_swappiness) {
         if (abs(last_swappiness - new_swappiness) >= SWAPPINESS_APPLY_STEP ||
             new_swappiness == SWAPPINESS_MIN ||
-            new_swappiness == SWAPPINESS_MAX)
-        {
+            new_swappiness == SWAPPINESS_MAX) {
           ALOGI("Swappiness -> %d", new_swappiness);
           last_swappiness = new_swappiness;
           write_swappiness(new_swappiness);
         }
       }
 
-      if (!is_swapoff_session && is_sleep_mode() && !sleeper_alive)
-      {
-        waiting_for_swapoff = true;
-        thread wfs_thread(
-            sleeper, wait_timeout,
-            []
-            {
-              waiting_for_swapoff = false;
-              ALOGD("Swapoff session started...");
-            },
-            []
-            {
-              if (!is_sleep_mode())
-              {
-                waiting_for_swapoff = false;
-                sleeper_kept_alive = false;
-
-                ALOGI("Device awake before %d minutes, swap deactivation "
-                      "skipped.",
-                      Config::SWAP_DEACTIVATION_TIME);
-              }
-            });
-        wfs_thread.detach();
-
-        ALOGI("Waiting for %d minutes...", SWAP_DEACTIVATION_TIME);
-      }
-
-      if (DEACTIVATE_IN_SLEEP)
-      {
-        if (!waiting_for_swapoff && is_sleep_mode())
-        {
-          is_swapoff_session = true;
-        }
-        else
-        {
+      if (DEACTIVATE_IN_SLEEP) {
+        start_swapoff_timer_if_idle(wait_timeout);
+        if (!is_sleep_mode()) {
           is_swapoff_session = false;
+          log_manager.reset("swapoff_session");
+          log_manager.reset("swapoff_timer");
         }
       }
 
-      // Prioritize ZRAM first before swap
-      if (!available_swaps.first.empty())
-      {
-        current_avs = &available_swaps.first;
-      }
-      else if (!available_swaps.second.empty())
-      {
-        current_avs = &available_swaps.second;
-      }
+      // SWAP management logic
+      if (unbounded) {
+        // Load available swaps
+        if (!available_swaps.first.empty()) {
+          current_avs = &available_swaps.first;
+        } else if (!available_swaps.second.empty()) {
+          current_avs = &available_swaps.second;
+        }
 
-      if (unbounded)
-      {
         // If there's no swap turn on first swap
-        if (active_swaps.empty())
-        {
+        if (active_swaps.empty()) {
           first_swap = current_avs->back();
           priority = get_smlst_priority();
 
-          if (swapon(first_swap, priority))
-          {
+          if (swapon(first_swap, priority)) {
             safe_push_back(first_swap, active_swaps);
             current_avs->pop_back();
 
             ALOGI("SWAPON: %s.", first_swap.c_str());
-          }
-          else
-          {
+          } else {
             available_swaps = get_available_swap();
           }
-        }
-        else
-        {
+        } else {
           last_active_swap = active_swaps.back();
           lst_swap_usage = get_swap_usage(last_active_swap);
           activation_threshold =
@@ -956,31 +870,31 @@ void dyn_swap_service()
                   : ZRAM_DEACTIVATION_THRESHOLD;
           low_usage_swaps = get_lusg_swaps();
 
-          // If last swap exceed activation threshold and there's swap available
-          // turn on next available swap
+          /*
+            If conditions:
+              1. Swap usage is more than activation threshold
+              2. Swap is available
+              3. Device is not in sleep mode which probably better for battery
+                 with swap usage low so less process running.
+            Then:
+              - Turn on next available swap
+          */
           if (lst_swap_usage.second > activation_threshold &&
-              !current_avs->empty())
-          {
+              !current_avs->empty() && !is_sleep_mode()) {
             next_swap = current_avs->back();
             priority = (next_swap.find("fmiop_swap.1") != string::npos)
                            ? get_smlst_priority()
                            : get_smlst_priority() - 1;
 
-            if (swapon(next_swap, priority))
-            {
+            if (swapon(next_swap, priority)) {
               safe_push_back(next_swap, active_swaps);
               current_avs->pop_back();
-            }
-            else
-            {
+            } else {
               available_swaps = get_available_swap();
             }
-          }
-          else
-          {
+          } else {
             // If SWAP more than 1 then check if need to turn off SWAP
-            try
-            {
+            try {
               scnd_lst_swap = active_swaps.at(active_swaps.size() - 2);
               lst_scnd_act_threshold =
                   (scnd_lst_swap.find(SWAP_FILE) != string::npos)
@@ -997,83 +911,64 @@ void dyn_swap_service()
                    active_swaps.size() > 1);
 
               // If one of condition is met turn off SWAP
-              if (is_condition_met)
-              {
+              if (is_condition_met) {
                 ALOGI("Device sleep more than %d minutes. Deactivating swap...",
                       SWAP_DEACTIVATION_TIME);
                 swapoff_(last_active_swap, swapoff_thread);
-              }
-              else if (kill_low_swap)
-              {
-                for (auto swap : low_usage_swaps)
-                {
+              } else if (kill_low_swap) {
+                for (auto swap : low_usage_swaps) {
                   swapoff_(swap, swapoff_thread, "Reason: low swap usage.");
                 }
               }
-            }
-            catch (const out_of_range &e)
-            {
-              if (scnd_log)
-              {
-                ALOGE("No second last swap.");
-                scnd_log = false;
-              }
+              log_manager.reset("swapoff_end");
+            } catch (const out_of_range &e) {
+              log_manager.log(LogType::ONCE, LogPriority::ERROR, "swapoff_end",
+                              "No second last swap.");
             }
           }
         }
       }
-      // Sleep for 1 second (100ms * 10 loops)
-      for (int i = 0; i < 10 && running; ++i)
-      {
+      // Sleep for 1 second (100ms * 10 loops) to make it more responsive
+      for (int i = 0; i < 10 && running; ++i) {
         this_thread::sleep_for(chrono::milliseconds(100));
       }
     }
   }
 }
 
-void relmkd()
-{
+void relmkd() {
   system("resetprop lmkd.reinit 1");
   ALOGD("LMKD reinitialized");
 }
 
-bool prop_exists(const string &prop)
-{
+bool prop_exists(const string &prop) {
   string command = "resetprop -v " + prop + " 2>/dev/null";
   FILE *pipe = popen(command.c_str(), "r");
-  if (!pipe)
-  {
+  if (!pipe) {
     ALOGW("Failed to check property: %s", prop.c_str());
     return false;
   }
 
   char buffer[128];
   bool exists = false;
-  if (fgets(buffer, sizeof(buffer), pipe) != nullptr)
-  {
-    exists = true; // If output is not empty, property exists
+  if (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+    exists = true;  // If output is not empty, property exists
   }
 
   pclose(pipe);
   return exists;
 }
 
-bool rm_prop(const vector<string> &props)
-{
-  for (const auto &prop : props)
-  {
-    if (prop_exists(prop))
-    {
+bool rm_prop(const vector<string> &props) {
+  for (const auto &prop : props) {
+    if (prop_exists(prop)) {
       string command = "resetprop -d " + prop;
       int result = system(command.c_str());
 
-      if (result == 0)
-      {
+      if (result == 0) {
         ALOGW("Prop %s deleted successfully", prop.c_str());
         return true;
-      }
-      else
-      {
+      } else {
         ALOGW("Failed to delete prop: %s", prop.c_str());
       }
     }
@@ -1081,36 +976,30 @@ bool rm_prop(const vector<string> &props)
   return false;
 }
 
-void fmiop()
-{
+void fmiop() {
   ALOGI("Starting minfree_level deleter service.");
 
-  while (true)
-  {
-    if (rm_prop({"sys.lmk.minfree_levels"}))
-    {
+  while (true) {
+    if (rm_prop({"sys.lmk.minfree_levels"})) {
       relmkd();
     }
     this_thread::sleep_for(chrono::seconds(1));
   }
 }
 
-int main()
-{
+int main() {
   signal(SIGINT, signal_handler);
 
   pid_t pid, sid;
 
   pid = fork();
 
-  if (pid < 0)
-  {
+  if (pid < 0) {
     exit(EXIT_FAILURE);
   }
 
-  if (pid > 0)
-  {
-    exit(EXIT_SUCCESS); // Parent process exits
+  if (pid > 0) {
+    exit(EXIT_SUCCESS);  // Parent process exits
   }
 
   // Set file mode creation mask to 0
@@ -1118,14 +1007,12 @@ int main()
 
   // Create a new session ID
   sid = setsid();
-  if (sid < 0)
-  {
+  if (sid < 0) {
     ALOGE("Failed to create new session: %s", strerror(errno));
     exit(EXIT_FAILURE);
   }
 
-  if (chdir("/") < 0)
-  {
+  if (chdir("/") < 0) {
     ALOGE("Failed to change working directory: %s", strerror(errno));
     exit(EXIT_FAILURE);
   }
