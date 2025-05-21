@@ -615,8 +615,9 @@ make_swap() {
 start_services() {
 	loger "===Main service started from here==="
 	pressure_reporter_service
-	su -c $MODPATH/system/bin/dynv &
+	$MODPATH/system/bin/dynv
 	loger "Started dyn_swap_service with PID $!"
+	pidof dynv || loger e "Failed to start dyn_swap_service"
 }
 
 kill_dynv() {
