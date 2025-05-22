@@ -789,19 +789,6 @@ struct DynamicSwappinessConfig {
   }
 };
 
-int get_swappiness_from_pressure(vector<pair<int, int>> table,
-                                 double pressure) {
-  sort(table.begin(), table.end(), [](auto &a, auto &b) {
-    return a.first > b.first;  // sort descending by threshold
-  });
-
-  for (const auto &[threshold, value] : table) {
-    if (pressure >= threshold) return value;
-  }
-
-  return -1;
-}
-
 bool psi_available() {
   ifstream cpu_file("/proc/pressure/cpu");
   ifstream mem_file("/proc/pressure/memory");
@@ -816,69 +803,101 @@ bool psi_available() {
   }
 }
 
-int evaluate_dynamic_swappiness(const DynamicSwappinessConfig &config) {
-  bool use_psi = config.threshold_type == "psi" && psi_available();
-  int selected_swappiness = -1;
-  int cpu_swappiness, mem_swappiness, io_swappiness;
+class SwappinessManager {
+ public:
+  SwappinessManager(const DynamicSwappinessConfig &config)
+      : config(config), last_swappiness(-1) {
+    // Cache sorted pressure maps
+    cached_cpu = sort_desc(config.pressure_mapping.cpu);
+    cached_mem = sort_desc(config.pressure_mapping.memory);
+    cached_io = sort_desc(config.pressure_mapping.io);
+    cached_legacy = sort_desc(config.pressure_mapping.mem_pressure);
+  }
 
-  if (use_psi) {
+  void evaluate_and_apply() {
+    int new_swappiness = config.threshold_type == "psi" && psi_available()
+                             ? evaluate_psi()
+                             : evaluate_legacy();
+
+    new_swappiness =
+        clamp(new_swappiness, config.min_swappiness, config.max_swappiness);
+
+    if (new_swappiness != last_swappiness) {
+      ALOGI("Swappiness -> %d", new_swappiness);
+      write_swappiness(new_swappiness);
+      last_swappiness = new_swappiness;
+      reset_threshold_logs();
+    }
+  }
+
+ private:
+  const DynamicSwappinessConfig &config;
+  int last_swappiness;
+
+  // Cached sorted maps
+  vector<pair<int, int>> cached_cpu;
+  vector<pair<int, int>> cached_mem;
+  vector<pair<int, int>> cached_io;
+  vector<pair<int, int>> cached_legacy;
+
+  static vector<pair<int, int>> sort_desc(const vector<pair<int, int>> &table) {
+    auto sorted = table;
+    sort(sorted.begin(), sorted.end(),
+         [](const auto &a, const auto &b) { return a.first > b.first; });
+    return sorted;
+  }
+
+  int evaluate_psi() {
     double cpu = read_pressure("cpu", "some", "avg10");
     double mem = read_pressure("memory", "some", "avg10");
     double io = read_pressure("io", "some", "avg10");
-    cpu_swappiness =
-        get_swappiness_from_pressure(config.pressure_mapping.cpu, cpu);
-    mem_swappiness =
-        get_swappiness_from_pressure(config.pressure_mapping.memory, mem);
-    io_swappiness =
-        get_swappiness_from_pressure(config.pressure_mapping.io, io);
 
-    selected_swappiness = max({
-        cpu_swappiness,
-        mem_swappiness,
-        io_swappiness,
-    });
+    int cpu_swappiness = get_swappiness_from_pressure(cached_cpu, cpu);
+    int mem_swappiness = get_swappiness_from_pressure(cached_mem, mem);
+    int io_swappiness = get_swappiness_from_pressure(cached_io, io);
 
-    if (cpu_swappiness != -1) {
-      log_manager.log(
-          LogType::ONCE, LogPriority::INFO, "cpu_threshold",
-          "Threshold CPU reached. Pressure: cpu: %f, mem: %f, io: %f", cpu, mem,
-          io);
-    } else {
-      log_manager.reset("cpu_threshold");
-    }
+    log_if_threshold("cpu_threshold", cpu_swappiness, cpu, mem, io);
+    log_if_threshold("mem_threshold", mem_swappiness, cpu, mem, io);
+    log_if_threshold("io_threshold", io_swappiness, cpu, mem, io);
 
-    if (mem_swappiness != -1) {
-      log_manager.log(
-          LogType::ONCE, LogPriority::INFO, "mem_threshold",
-          "Threshold CPU reached. Pressure: cpu: %f, mem: %f, io: %f", cpu, mem,
-          io);
-    } else {
-      log_manager.reset("mem_threshold");
-    }
+    return (max({cpu_swappiness, mem_swappiness, io_swappiness}) != -1)
+               ? max({cpu_swappiness, mem_swappiness, io_swappiness})
+               : config.max_swappiness;
+  }
 
-    if (io_swappiness != -1) {
-      log_manager.log(
-          LogType::ONCE, LogPriority::INFO, "io_threshold",
-          "Threshold CPU reached. Pressure: cpu: %f, mem: %f, io: %f", cpu, mem,
-          io);
-    } else {
-      log_manager.reset("io_threshold");
-    }
-  } else {
+  int evaluate_legacy() {
     int mem_pressure = get_memory_pressure();
-    selected_swappiness = get_swappiness_from_pressure(
-        config.pressure_mapping.mem_pressure, mem_pressure);
+    return (get_swappiness_from_pressure(cached_legacy, mem_pressure) != -1)
+               ? get_swappiness_from_pressure(cached_legacy, mem_pressure)
+               : config.max_swappiness;
   }
 
-  if (selected_swappiness == -1 ||
-      selected_swappiness > config.max_swappiness) {
-    selected_swappiness = config.max_swappiness;
-  } else if (selected_swappiness < config.min_swappiness) {
-    selected_swappiness = config.min_swappiness;
+  void log_if_threshold(const string &tag, int swappiness, double cpu,
+                        double mem, double io) {
+    if (swappiness != -1) {
+      log_manager.log(
+          LogType::ONCE, LogPriority::INFO, tag,
+          "Threshold %s reached. Pressure: cpu: %.2f, mem: %.2f, io: %.2f",
+          tag.c_str(), cpu, mem, io);
+    } else {
+      log_manager.reset(tag);
+    }
   }
 
-  return selected_swappiness;
-}
+  void reset_threshold_logs() {
+    log_manager.reset("cpu_threshold");
+    log_manager.reset("mem_threshold");
+    log_manager.reset("io_threshold");
+  }
+
+  static int get_swappiness_from_pressure(const vector<pair<int, int>> &table,
+                                          double pressure) {
+    for (const auto &[threshold, value] : table) {
+      if (pressure >= threshold) return value;
+    }
+    return -1;
+  }
+};
 
 /**
  * Dynamic swappiness adjustment service.
@@ -900,6 +919,7 @@ void dyn_swap_service() {
   YAML::Node configRoot = YAML::LoadFile(get_config_file());
   DynamicSwappinessConfig dynConfig;
   dynConfig.load_from_yaml(configRoot);
+  SwappinessManager swappinessManager(dynConfig);
 
   active_swaps = get_active_swap();
   available_swaps = get_available_swap();
@@ -925,15 +945,7 @@ void dyn_swap_service() {
 
   while (running) {
     if (!is_doze_mode()) {
-      int new_swappiness = evaluate_dynamic_swappiness(dynConfig);
-      if (new_swappiness != last_swappiness) {
-        ALOGI("Swappiness -> %d", new_swappiness);
-        last_swappiness = new_swappiness;
-        write_swappiness(new_swappiness);
-        log_manager.reset("cpu_threshold");
-        log_manager.reset("mem_threshold");
-        log_manager.reset("io_threshold");
-      }
+      swappinessManager.evaluate_and_apply();
 
       if (DEACTIVATE_IN_SLEEP) {
         start_swapoff_timer_if_idle(wait_timeout);
