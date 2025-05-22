@@ -789,12 +789,17 @@ struct DynamicSwappinessConfig {
   }
 };
 
-int get_swappiness_from_pressure(const vector<pair<int, int>> &table,
+int get_swappiness_from_pressure(vector<pair<int, int>> table,
                                  double pressure) {
+  sort(table.begin(), table.end(), [](auto &a, auto &b) {
+    return a.first > b.first;  // sort descending by threshold
+  });
+
   for (const auto &[threshold, value] : table) {
     if (pressure >= threshold) return value;
   }
-  return -1;  // Fallback to default
+
+  return -1;
 }
 
 bool psi_available() {
@@ -925,6 +930,9 @@ void dyn_swap_service() {
         ALOGI("Swappiness -> %d", new_swappiness);
         last_swappiness = new_swappiness;
         write_swappiness(new_swappiness);
+        log_manager.reset("cpu_threshold");
+        log_manager.reset("mem_threshold");
+        log_manager.reset("io_threshold");
       }
 
       if (DEACTIVATE_IN_SLEEP) {

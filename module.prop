@@ -1,7 +1,7 @@
 id=fmiop
 name=LMKD PSI Activator
 version=v4.0-beta
-versionCode=2011
+versionCode=2013
 author=lululoid
 description=🔳Memory pressure(higher is better): -1, 💾swappiness: -1, Swap Status: ✅ Running . Fix RAM management by activating psi mode in LMKD which is more efficient, faster and more stable than traditional minfree_levels most ROMs use
 updateJson=https://raw.githubusercontent.com/lululoid/LMKD-PSI-Activator/refs/heads/main/update_config.json
