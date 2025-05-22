@@ -39,6 +39,7 @@ enum LogPriority {
 #define SWAP_DIR "/data/adb"
 
 using namespace std;
+using namespace chrono;
 namespace fs = filesystem;
 
 #define LOG_TAG "fmiop"
@@ -675,11 +676,12 @@ void sleeper(int seconds, function<void()> on_complete = nullptr,
              function<bool()> interrupt_check = nullptr) {
   sleeper_alive = true;
   bool interrupted = false;
-  log_manager.log(LogType::ALWAYS, LogPriority::INFO, "",
-                  "Sleep for %d seconds...", seconds);
 
-  for (int i = 0; i < seconds * 10; ++i) {
-    this_thread::sleep_for(chrono::milliseconds(100));
+  auto deadline = steady_clock::now() + chrono::seconds(seconds);
+  ALOGI("Sleep for %d seconds...", seconds);
+
+  while (steady_clock::now() < deadline) {
+    this_thread::sleep_for(milliseconds(100));
 
     if (interrupt_check && interrupt_check()) {
       interrupted = true;
@@ -697,7 +699,7 @@ void sleeper(int seconds, function<void()> on_complete = nullptr,
 }
 
 void start_swapoff_timer_if_idle(int wait_timeout) {
-  if (sleeper_alive || !is_sleep_mode() || is_swapoff_session) return;
+  if (is_swapoff_session || !is_sleep_mode() || sleeper_alive) return;
   thread([=] {
     sleeper(
         wait_timeout,
@@ -825,29 +827,35 @@ int evaluate_dynamic_swappiness(const DynamicSwappinessConfig &config) {
     io_swappiness =
         get_swappiness_from_pressure(config.pressure_mapping.io, io);
 
-    selected_swappiness = std::max({
+    selected_swappiness = max({
         cpu_swappiness,
         mem_swappiness,
         io_swappiness,
     });
 
     if (cpu_swappiness != -1) {
-      log_manager.log(LogType::ONCE, LogPriority::INFO, "cpu_threshold",
-                      "Threshold CPU reached. Pressure: %f", cpu);
+      log_manager.log(
+          LogType::ONCE, LogPriority::INFO, "cpu_threshold",
+          "Threshold CPU reached. Pressure: cpu: %f, mem: %f, io: %f", cpu, mem,
+          io);
     } else {
       log_manager.reset("cpu_threshold");
     }
 
     if (mem_swappiness != -1) {
-      log_manager.log(LogType::ONCE, LogPriority::INFO, "mem_threshold",
-                      "Threshold Memory reached. Pressure: %f", mem);
+      log_manager.log(
+          LogType::ONCE, LogPriority::INFO, "mem_threshold",
+          "Threshold CPU reached. Pressure: cpu: %f, mem: %f, io: %f", cpu, mem,
+          io);
     } else {
       log_manager.reset("mem_threshold");
     }
 
     if (io_swappiness != -1) {
-      log_manager.log(LogType::ONCE, LogPriority::INFO, "io_threshold",
-                      "Threshold IO reached. Pressure: %f", io);
+      log_manager.log(
+          LogType::ONCE, LogPriority::INFO, "io_threshold",
+          "Threshold CPU reached. Pressure: cpu: %f, mem: %f, io: %f", cpu, mem,
+          io);
     } else {
       log_manager.reset("io_threshold");
     }
@@ -1015,7 +1023,7 @@ void dyn_swap_service() {
               }
               log_manager.reset("swapoff_end");
             } catch (const out_of_range &e) {
-              log_manager.log(LogType::ONCE, LogPriority::ERROR, "swapoff_end",
+              log_manager.log(LogType::ONCE, LogPriority::WARN, "swapoff_end",
                               "No second last swap.");
             }
           }
@@ -1023,7 +1031,7 @@ void dyn_swap_service() {
       }
       // Sleep for 1 second (100ms * 10 loops) to make it more responsive
       for (int i = 0; i < 10 && running; ++i) {
-        this_thread::sleep_for(chrono::milliseconds(100));
+        this_thread::sleep_for(milliseconds(100));
       }
     }
   }
@@ -1076,7 +1084,7 @@ void fmiop() {
     if (rm_prop({"sys.lmk.minfree_levels"})) {
       relmkd();
     }
-    this_thread::sleep_for(chrono::seconds(1));
+    this_thread::sleep_for(seconds(1));
   }
 }
 
