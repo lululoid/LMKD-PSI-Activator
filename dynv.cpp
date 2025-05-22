@@ -122,6 +122,23 @@ T read_config(const string &key_path, T default_value) {
 
 class LogManager {
  public:
+  /**
+   * @brief Logs a message with the specified type, priority, and format.
+   *
+   * This templated function logs messages using Android's logging system. It
+   * supports different log types, including normal, quiet (no logging), and
+   * once (logs only once per key). If the log type is QUIET, the function
+   * returns immediately without logging. If the log type is ONCE and the
+   * message with the given key has already been logged, it will not log again.
+   * Otherwise, it logs the formatted message with the provided arguments.
+   *
+   * @tparam Args Variadic template parameters for formatting the log message.
+   * @param type The type of log (e.g., normal, quiet, once).
+   * @param level The priority level of the log message.
+   * @param key A unique key to identify the log message (used for ONCE type).
+   * @param format The format string for the log message (printf-style).
+   * @param args Arguments to be formatted into the log message.
+   */
   template <typename... Args>
   void log(LogType type, LogPriority level, const string &key,
            const char *format, Args... args) {
@@ -153,41 +170,20 @@ class LogManager {
 };
 
 static LogManager log_manager;
-struct Config {
-  static inline float CONFIG_VERSION = read_config(".config_version", -1.0);
-  static inline int SWAPPINESS_MAX =
-      read_config(".dynamic_swappiness.swappiness_range.max", 100);
-  static inline int SWAPPINESS_MIN =
-      read_config(".dynamic_swappiness.swappiness_range.min", 80);
-  static inline int CPU_PRESSURE_THRESHOLD =
-      read_config(".dynamic_swappiness.threshold_psi.cpu_pressure", 35);
-  static inline int MEMORY_PRESSURE_THRESHOLD =
-      read_config(".dynamic_swappiness.threshold_psi.memory_pressure", 15);
-  static inline int IO_PRESSURE_THRESHOLD =
-      read_config(".dynamic_swappiness.threshold_psi.io_pressure", 30);
-  static inline int MEMORY_PRESSURE_THRESHOLD_ALT =
-      read_config(".dynamic_swappiness.threshold_mem_pressure", 60);
-  static inline int SWAPPINESS_STEP =
-      read_config(".dynamic_swappiness.step", 2);
-  static inline int SWAPPINESS_APPLY_STEP =
-      read_config(".dynamic_swappiness.apply_step", 20);
-  static inline int ZRAM_ACTIVATION_THRESHOLD =
-      read_config(".virtual_memory.zram.activation_threshold", 70);
-  static inline int ZRAM_DEACTIVATION_THRESHOLD =
-      read_config(".virtual_memory.zram.deactivation_threshold", 50);
-  static inline int SWAP_ACTIVATION_THRESHOLD =
-      read_config(".virtual_memory.swap.activation_threshold", 90);
-  static inline int SWAP_DEACTIVATION_THRESHOLD =
-      read_config(".virtual_memory.swap.deactivation_threshold", 50);
-  static inline int SWAP_DEACTIVATION_TIME =
-      read_config(".virtual_memory.wait_timeout", 10);
-  static inline bool PRESSURE_BINDING =
-      read_config(".virtual_memory.pressure_binding", false);
-  static inline bool DEACTIVATE_IN_SLEEP =
-      read_config(".virtual_memory.deactivate_in_sleep", true);
-  static inline string THRESHOLD_TYPE =
-      read_config(".dynamic_swappiness.threshold_type", string("psi"));
-};
+
+vector<pair<int, int>> parse_pressure_pairs(const YAML::Node &node) {
+  vector<pair<int, int>> result;
+  if (!node || !node.IsSequence()) return result;
+
+  for (const auto &pairNode : node) {
+    if (pairNode.IsSequence() && pairNode.size() == 2) {
+      int threshold = pairNode[0].as<int>();
+      int value = pairNode[1].as<int>();
+      result.emplace_back(threshold, value);
+    }
+  }
+  return result;
+}
 
 /**
  * Reads the current swappiness value from the system.
@@ -727,6 +723,150 @@ void start_swapoff_timer_if_idle(int wait_timeout) {
                   "Idle detected. Timer for swapoff initiated...");
 }
 
+struct Config {
+  static inline float CONFIG_VERSION = read_config(".config_version", -1.0);
+  static inline int SWAPPINESS_MAX =
+      read_config(".dynamic_swappiness.swappiness_range.max", 100);
+  static inline int SWAPPINESS_MIN =
+      read_config(".dynamic_swappiness.swappiness_range.min", 80);
+  static inline int ZRAM_ACTIVATION_THRESHOLD =
+      read_config(".virtual_memory.zram.activation_threshold", 70);
+  static inline int ZRAM_DEACTIVATION_THRESHOLD =
+      read_config(".virtual_memory.zram.deactivation_threshold", 50);
+  static inline int SWAP_ACTIVATION_THRESHOLD =
+      read_config(".virtual_memory.swap.activation_threshold", 90);
+  static inline int SWAP_DEACTIVATION_THRESHOLD =
+      read_config(".virtual_memory.swap.deactivation_threshold", 50);
+  static inline int SWAP_DEACTIVATION_TIME =
+      read_config(".virtual_memory.wait_timeout", 10);
+  static inline bool PRESSURE_BINDING =
+      read_config(".virtual_memory.pressure_binding", false);
+  static inline bool DEACTIVATE_IN_SLEEP =
+      read_config(".virtual_memory.deactivate_in_sleep", true);
+  static inline string THRESHOLD_TYPE =
+      read_config(".dynamic_swappiness.threshold_type", string("psi"));
+};
+
+struct PressureMapping {
+  vector<pair<int, int>> cpu;
+  vector<pair<int, int>> memory;
+  vector<pair<int, int>> io;
+  vector<pair<int, int>> mem_pressure;
+};
+
+struct DynamicSwappinessConfig {
+  int min_swappiness;
+  int max_swappiness;
+  string threshold_type = Config::THRESHOLD_TYPE;
+  PressureMapping pressure_mapping;
+
+  void load_from_yaml(const YAML::Node &config) {
+    auto dyn = config["dynamic_swappiness"];
+    if (!dyn) return;
+
+    threshold_type =
+        dyn["threshold_type"] ? dyn["threshold_type"].as<string>() : "psi";
+    min_swappiness = dyn["swappiness_range"]["min"]
+                         ? dyn["swappiness_range"]["min"].as<int>()
+                         : Config::SWAPPINESS_MIN;
+    max_swappiness = dyn["swappiness_range"]["max"]
+                         ? dyn["swappiness_range"]["max"].as<int>()
+                         : Config::SWAPPINESS_MAX;
+
+    auto psi = dyn["threshold_psi"];
+    if (psi) {
+      pressure_mapping.cpu = parse_pressure_pairs(psi["cpu_pressure"]);
+      pressure_mapping.memory = parse_pressure_pairs(psi["memory_pressure"]);
+      pressure_mapping.io = parse_pressure_pairs(psi["io_pressure"]);
+    }
+
+    auto mem = dyn["threshold_mem_pressure"];
+    if (mem) {
+      pressure_mapping.mem_pressure = parse_pressure_pairs(mem);
+    }
+  }
+};
+
+int get_swappiness_from_pressure(const vector<pair<int, int>> &table,
+                                 double pressure) {
+  for (const auto &[threshold, value] : table) {
+    if (pressure >= threshold) return value;
+  }
+  return -1;  // Fallback to default
+}
+
+bool psi_available() {
+  ifstream cpu_file("/proc/pressure/cpu");
+  ifstream mem_file("/proc/pressure/memory");
+  ifstream io_file("/proc/pressure/io");
+
+  if (cpu_file.good() && mem_file.good() && io_file.good()) {
+    return true;
+  } else {
+    log_manager.log(LogType::ONCE, LogPriority::WARN, "psi_unavailable",
+                    "PSI metrics unavailable. Falling back to mem_pressure.");
+    return false;
+  }
+}
+
+int evaluate_dynamic_swappiness(const DynamicSwappinessConfig &config) {
+  bool use_psi = config.threshold_type == "psi" && psi_available();
+  int selected_swappiness = -1;
+  int cpu_swappiness, mem_swappiness, io_swappiness;
+
+  if (use_psi) {
+    double cpu = read_pressure("cpu", "some", "avg10");
+    double mem = read_pressure("memory", "some", "avg10");
+    double io = read_pressure("io", "some", "avg10");
+    cpu_swappiness =
+        get_swappiness_from_pressure(config.pressure_mapping.cpu, cpu);
+    mem_swappiness =
+        get_swappiness_from_pressure(config.pressure_mapping.memory, mem);
+    io_swappiness =
+        get_swappiness_from_pressure(config.pressure_mapping.io, io);
+
+    selected_swappiness = std::max({
+        cpu_swappiness,
+        mem_swappiness,
+        io_swappiness,
+    });
+
+    if (cpu_swappiness != -1) {
+      log_manager.log(LogType::ONCE, LogPriority::INFO, "cpu_threshold",
+                      "Threshold CPU reached. Pressure: %f", cpu);
+    } else {
+      log_manager.reset("cpu_threshold");
+    }
+
+    if (mem_swappiness != -1) {
+      log_manager.log(LogType::ONCE, LogPriority::INFO, "mem_threshold",
+                      "Threshold Memory reached. Pressure: %f", mem);
+    } else {
+      log_manager.reset("mem_threshold");
+    }
+
+    if (io_swappiness != -1) {
+      log_manager.log(LogType::ONCE, LogPriority::INFO, "io_threshold",
+                      "Threshold IO reached. Pressure: %f", io);
+    } else {
+      log_manager.reset("io_threshold");
+    }
+  } else {
+    int mem_pressure = get_memory_pressure();
+    selected_swappiness = get_swappiness_from_pressure(
+        config.pressure_mapping.mem_pressure, mem_pressure);
+  }
+
+  if (selected_swappiness == -1 ||
+      selected_swappiness > config.max_swappiness) {
+    selected_swappiness = config.max_swappiness;
+  } else if (selected_swappiness < config.min_swappiness) {
+    selected_swappiness = config.min_swappiness;
+  }
+
+  return selected_swappiness;
+}
+
 /**
  * Dynamic swappiness adjustment service.
  */
@@ -734,12 +874,6 @@ void dyn_swap_service() {
   float CONFIG_VERSION = Config::CONFIG_VERSION;
   int SWAPPINESS_MAX = Config::SWAPPINESS_MAX;
   int SWAPPINESS_MIN = Config::SWAPPINESS_MIN;
-  int CPU_PRESSURE_THRESHOLD = Config::CPU_PRESSURE_THRESHOLD;
-  int MEMORY_PRESSURE_THRESHOLD = Config::MEMORY_PRESSURE_THRESHOLD;
-  int IO_PRESSURE_THRESHOLD = Config::IO_PRESSURE_THRESHOLD;
-  int MEMORY_PRESSURE_THRESHOLD_ALT = Config::MEMORY_PRESSURE_THRESHOLD;
-  int SWAPPINESS_STEP = Config::SWAPPINESS_STEP;
-  int SWAPPINESS_APPLY_STEP = Config::SWAPPINESS_APPLY_STEP;
   int ZRAM_ACTIVATION_THRESHOLD = Config::ZRAM_ACTIVATION_THRESHOLD;
   int ZRAM_DEACTIVATION_THRESHOLD = Config::ZRAM_DEACTIVATION_THRESHOLD;
   int SWAP_ACTIVATION_THRESHOLD = Config::SWAP_ACTIVATION_THRESHOLD;
@@ -749,6 +883,10 @@ void dyn_swap_service() {
   bool DEACTIVATE_IN_SLEEP = Config::DEACTIVATE_IN_SLEEP;
   string THRESHOLD_TYPE = Config::THRESHOLD_TYPE;
   bool in_pressure_logged;
+
+  YAML::Node configRoot = YAML::LoadFile(get_config_file());
+  DynamicSwappinessConfig dynConfig;
+  dynConfig.load_from_yaml(configRoot);
 
   active_swaps = get_active_swap();
   available_swaps = get_available_swap();
@@ -774,56 +912,11 @@ void dyn_swap_service() {
 
   while (running) {
     if (!is_doze_mode()) {
-      // Choosing threshold type based on config or if PSI is not available
-      if (threshold_psi) {
-        double memory_metric = read_pressure("memory", "some", "avg60");
-        double cpu_metric = read_pressure("cpu", "some", "avg10");
-        double io_metric = read_pressure("io", "some", "avg60");
-        in_pressure = io_metric > IO_PRESSURE_THRESHOLD ||
-                      cpu_metric > CPU_PRESSURE_THRESHOLD ||
-                      memory_metric > MEMORY_PRESSURE_THRESHOLD;
-
-        if (isnan(memory_metric) || isnan(cpu_metric) || isnan(io_metric)) {
-          ALOGE(
-              "Error reading pressure metrics. Switching to mem_pressure "
-              "mode.");
-          THRESHOLD_TYPE = "mem_pressure";
-          threshold_psi = THRESHOLD_TYPE == "psi";
-          threshold_mem_pressure = THRESHOLD_TYPE == "mem_pressure";
-        }
-      } else if (threshold_mem_pressure) {
-        int memory_pressure = get_memory_pressure();
-        in_pressure = memory_pressure <= MEMORY_PRESSURE_THRESHOLD_ALT;
-
-        if (in_pressure) {
-          if (!in_pressure_logged) {
-            ALOGI(
-                "Memory pressure %d < %d. Threshold reached. Changing "
-                "swappiness.",
-                memory_pressure, MEMORY_PRESSURE_THRESHOLD_ALT);
-            in_pressure_logged = true;
-          }
-        } else {
-          in_pressure_logged = false;
-        }
-      }
-
-      if (in_pressure) {
-        new_swappiness = max(SWAPPINESS_MIN, new_swappiness - SWAPPINESS_STEP);
-        unbounded = true;
-      } else {
-        new_swappiness = min(SWAPPINESS_MAX, new_swappiness + SWAPPINESS_STEP);
-        unbounded = !PRESSURE_BINDING;
-      }
-
+      int new_swappiness = evaluate_dynamic_swappiness(dynConfig);
       if (new_swappiness != last_swappiness) {
-        if (abs(last_swappiness - new_swappiness) >= SWAPPINESS_APPLY_STEP ||
-            new_swappiness == SWAPPINESS_MIN ||
-            new_swappiness == SWAPPINESS_MAX) {
-          ALOGI("Swappiness -> %d", new_swappiness);
-          last_swappiness = new_swappiness;
-          write_swappiness(new_swappiness);
-        }
+        ALOGI("Swappiness -> %d", new_swappiness);
+        last_swappiness = new_swappiness;
+        write_swappiness(new_swappiness);
       }
 
       if (DEACTIVATE_IN_SLEEP) {

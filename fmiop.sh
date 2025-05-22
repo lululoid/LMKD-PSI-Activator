@@ -585,11 +585,10 @@ setup_swap_size() {
 	exec 3>&-
 	set +x
 
-	uprint "
-- Please select SWAP size 
-  Press VOLUME + to use DEFAULT
-  Press VOLUME - to SELECT 
-  DEFAULT is 0 SWAP"
+	printf '\n- Please select SWAP size '
+	printf '\n  Press VOLUME + to use DEFAULT'
+	printf '\n  Press VOLUME - to SELECT '
+	printf '\n  DEFAULT is 0 SWAP\n'
 
 	while true; do
 		if get_key_event 'KEY_VOLUMEDOWN *DOWN'; then
@@ -603,6 +602,8 @@ setup_swap_size() {
 		fi
 	done
 	kill_capture_pid
+	exec 3>&1
+	set -x
 }
 
 make_swap() {
@@ -638,8 +639,7 @@ magisk_ge() {
 	version=$(magisk -v 2>/dev/null | awk -F ':' '{print $1}')
 	if [ -z "$version" ]; then
 		loger "❌ Failed to get Magisk version"
-		uprint "
-❌ Failed to get Magisk version"
+		printf "\n❌ Failed to get Magisk version"
 		return 1
 	fi
 
@@ -724,7 +724,7 @@ apply_uffd_gc() {
   Great, your kernel supports USERFAULTFD.
   Now your garbage collection will be modern (UFFD GC).
 	"
-	
+
 		resetprop ro.dalvik.vm.enable_uffd_gc true && {
 			uprint "  › UFFD GC V1 is activated." || loger "UFFD GC V1 is activated."
 		}

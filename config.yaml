@@ -1,24 +1,31 @@
-config_version: 0.8
+config_version: 0.9
 dynamic_swappiness:
   threshold_type: "psi"
   swappiness_range:
     max: 100
     min: 60
   threshold_psi:
-    cpu_pressure: 40
-    memory_pressure: 15
-    io_pressure: 30
-  threshold_mem_pressure: 50
-  step: 2
-  apply_step: 20
+    # Pairs of pressure values and their corresponding swappiness values
+    # Choose the highest value any pressure reaches
+    # Default to if higher pressure then lower swappiness
+    cpu_pressure: [[30, 80], [35, 60], [40, 50], [50, 40]]
+    memory_pressure: [[15, 80], [20, 60], [25, 40]]
+    io_pressure: [[25, 80], [30, 60], [35, 40]]
+  # Percentage of memory usage to activate swappiness
+  # Lower memory pressure values means higher memory pressure
+  # which is confusing, ask google why.
+  threshold_mem_pressure: [[60, 80], [50, 60], [40, 40]]
 virtual_memory:
-  enable: true
-  pressure_binding: false
-  deactivate_in_sleep: true
-  wait_timeout: 10
+  enable: true # Wether to enable dynamic zram or not
+  pressure_binding: false # True means only activate zram when pressure is high
+  # Wether to deactivate zram when system is in sleep or immediately
+  deactivate_in_sleep: true 
+  wait_timeout: 600 # Time in seconds to wait before deactivating zram
   zram:
-    activation_threshold: 80
-    deactivation_threshold: 55
+    # Percentage of memory usage to activate next zram
+    activation_threshold: 80 
+    # Minimum size in MB of free memory to deactivate zram
+    deactivation_threshold: 55 
   swap:
     activation_threshold: 90
     deactivation_threshold: 40

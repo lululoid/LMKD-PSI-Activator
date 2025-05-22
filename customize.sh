@@ -122,8 +122,7 @@ update_config() {
 		if [ $target ] || [ $old_key ] || [ $new_key ]; then
 			yq -i "$new_key = $old_key | del($old_key)" $target
 		else
-			ui_print "
-- Missing variable."
+			printf '\n- Missing variable.'
 		fi
 	}
 
@@ -137,17 +136,17 @@ update_config() {
 		mkdir -p $FMIOP_DIR
 		cp $current_config $CONFIG_INTERNAL
 		cp $current_config $CONFIG_FILE
-		ui_print "
-- Config is located at
-  > Internal -> Android/data/$TAG/config.yaml"
+		printf '\n- Config is located at'
+		printf '  > Internal -> Android/data/%s/config.yaml' "$TAG"
 		please_reboot=true
 	fi
 
-	if [ "$(echo "$last_config_v 0.6" | awk '{print ($1 <= $2) ? 1 : 0}')" -eq 1 ]; then
+	if [ "$(echo "$last_config_v 0.9" | awk '{print ($1 < $2) ? 1 : 0}')" -eq 1 ]; then
 		mkdir -p $FMIOP_DIR
 		cp $CONFIG_INTERNAL $CONFIG_INTERNAL.old
 		cp $current_config $CONFIG_INTERNAL
 		cp $current_config $CONFIG_FILE
+		printf '\n- Config: %s is replaced with newer version' "$CONFIG_INTERNAL"
 		config_backed=true
 	elif [ "$(echo "$last_config_v 0.7" | awk '{print ($1 <= $2) ? 1 : 0}')" -eq 1 ]; then
 		cp $CONFIG_INTERNAL $CONFIG_INTERNAL.old
@@ -156,8 +155,7 @@ update_config() {
 		yq -i ".config_version = $current_config_v" $current_config
 		cp $current_config $CONFIG_INTERNAL
 		cp $CONFIG_INTERNAL $CONFIG_FILE
-		uprint "
-- Config: $CONFIG_INTERNAL is updated"
+		printf '\n- Config: %s is updated' "$CONFIG_INTERNAL"
 		config_backed=true
 	elif [ "$last_config_v" = "null" ] || [ $is_update -eq 1 ]; then # Adding new values
 		cp $CONFIG_INTERNAL $CONFIG_INTERNAL.old
@@ -169,10 +167,10 @@ update_config() {
 		config_backed=true
 	fi
 
-	[ $config_backed ] &&
-		uprint "
-! Backup $CONFIG_INTERNAL.old created
-  Config is located at $CONFIG_INTERNAL"
+	[ $config_backed ] && {
+		printf '\n! Backup %s.old created\n' "$CONFIG_INTERNAL"
+		printf '  Config is located at %s \n' "$CONFIG_INTERNAL"
+	}
 }
 
 update_tools() {
@@ -188,10 +186,10 @@ update_tools() {
 
 remove_fogimp() {
 	miui_v=$(resetprop ro.miui.ui.version.code)
-	bootimg_model=$(resetprop ro.product.bootimage.model)
+	vendor_marketname=$(resetprop ro.product.vendor.marketname)
 	product_model=$(resetprop ro.product.model)
 
-	if [ $bootimg_model != "Redmi 10C" ] || [ $product_model != "220333QAG" ] || [ -z $miui_v ]; then
+	if [ $vendor_marketname != "Redmi 10C" ] || [ $product_model != "220333QAG" ] || [ -z $miui_v ]; then
 		touch /data/adb/modules/fogimp/remove
 		ui_print ""
 		ui_print "- Fogimp marked for removal."
@@ -228,8 +226,7 @@ check_files_and_folders() {
 
 	for file in $required_files; do
 		if [ ! -f "$file" ]; then
-			uprint "
-- Missing file: $file"
+			printf "\n- Missing file: %s" "$file"
 			return 1
 		fi
 	done
