@@ -884,6 +884,21 @@ class SwappinessManager {
            swappiness_max;
   }
 
+  // Helper function to join vector<int> into a string, highlighting the
+  // selected index
+  static string join_vector(const vector<int> &vec, int highlight_index) {
+    ostringstream oss;
+    for (size_t i = 0; i < vec.size(); ++i) {
+      if (static_cast<int>(i) == highlight_index) {
+        oss << "[" << vec[i] << "]";
+      } else {
+        oss << vec[i];
+      }
+      if (i != vec.size() - 1) oss << " ";
+    }
+    return oss.str();
+  }
+
   int interpolate_sparse(double pressure, double pressure_min,
                          double pressure_max, int swappiness_max,
                          int swappiness_min, string log_id, int levels = 4) {
@@ -909,14 +924,12 @@ class SwappinessManager {
         oss << swappiness_steps[i] << " ";
     }
 
-    log_manager.log(LogType::ONCE, LogPriority::DEBUG, log_id,
-                    "[interpolate_sparse] Clamped pressure: %.2f\n"
-                    "[interpolate_sparse] Normalized pressure: %.4f\n"
-                    "[interpolate_sparse] Reversed normalized: %.4f\n"
-                    "[interpolate_sparse] Level index: %d (out of %d)\n"
-                    "%s",
-                    pressure, norm, reversed, index, levels, oss.str().c_str());
-    
+    log_manager.log(LogType::ONCE, LogPriority::INFO, log_id,
+                    "[%s] PSI: %.2f normalized to %.4f (reversed: %.4f). "
+                    "Using level %d → swappiness %d from steps [%s]",
+                    log_id.c_str(), pressure, norm, reversed, index,
+                    swappiness_steps[index],
+                    join_vector(swappiness_steps, index).c_str());
     // Step 6: Return selected swappiness
     return swappiness_steps[index];
   }
@@ -943,6 +956,12 @@ class SwappinessManager {
 
       int swappiness = min({pressures[0], pressures[1], pressures[2]});
       log_if_threshold("sparsed_swappiness", swappiness, cpu, mem, io);
+      log_manager.log(LogType::ONCE, LogPriority::INFO, "swappiness_eval",
+                      "[AUTO MODE] CPU: %.2f → %d, MEM: %.2f → %d, IO: %.2f → "
+                      "%d → FINAL: %d",
+                      cpu, pressures[0], mem, pressures[1], io, pressures[2],
+                      swappiness);
+
       return swappiness;
     } else {
       int cpu_swappiness = get_swappiness_from_pressure(cached_cpu, cpu);
@@ -983,6 +1002,7 @@ class SwappinessManager {
     log_manager.reset("cpu_pressure");
     log_manager.reset("mem_pressure");
     log_manager.reset("io_pressure");
+    log_manager.reset("swappiness_eval");
   }
 
   static int get_swappiness_from_pressure(const vector<pair<int, int>> &table,
