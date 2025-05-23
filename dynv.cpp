@@ -17,6 +17,7 @@
 #include <functional>
 #include <iostream>
 #include <mutex>
+#include <numeric>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
@@ -726,27 +727,39 @@ void start_swapoff_timer_if_idle(int wait_timeout) {
 }
 
 struct Config {
-  static inline float CONFIG_VERSION = read_config(".config_version", -1.0);
-  static inline int SWAPPINESS_MAX =
-      read_config(".dynamic_swappiness.swappiness_range.max", 100);
-  static inline int SWAPPINESS_MIN =
-      read_config(".dynamic_swappiness.swappiness_range.min", 80);
-  static inline int ZRAM_ACTIVATION_THRESHOLD =
-      read_config(".virtual_memory.zram.activation_threshold", 70);
-  static inline int ZRAM_DEACTIVATION_THRESHOLD =
-      read_config(".virtual_memory.zram.deactivation_threshold", 50);
-  static inline int SWAP_ACTIVATION_THRESHOLD =
-      read_config(".virtual_memory.swap.activation_threshold", 90);
-  static inline int SWAP_DEACTIVATION_THRESHOLD =
-      read_config(".virtual_memory.swap.deactivation_threshold", 50);
-  static inline int SWAP_DEACTIVATION_TIME =
-      read_config(".virtual_memory.wait_timeout", 10);
-  static inline bool PRESSURE_BINDING =
-      read_config(".virtual_memory.pressure_binding", false);
-  static inline bool DEACTIVATE_IN_SLEEP =
-      read_config(".virtual_memory.deactivate_in_sleep", true);
-  static inline string THRESHOLD_TYPE =
-      read_config(".dynamic_swappiness.threshold_type", string("psi"));
+  float config_version;
+  int swappiness_max;
+  int swappiness_min;
+  int zram_activation_threshold;
+  int zram_deactivation_threshold;
+  int swap_activation_threshold;
+  int swap_deactivation_threshold;
+  int swap_deactivation_time;
+  bool pressure_binding;
+  bool deactivate_in_sleep;
+  string threshold_type;
+
+  void load_from_yaml() {
+    config_version = read_config(".config_version", -1.0);
+    swappiness_max =
+        read_config(".dynamic_swappiness.swappiness_range.max", 100);
+    swappiness_min =
+        read_config(".dynamic_swappiness.swappiness_range.min", 80);
+    zram_activation_threshold =
+        read_config(".virtual_memory.zram.activation_threshold", 70);
+    zram_deactivation_threshold =
+        read_config(".virtual_memory.zram.deactivation_threshold", 50);
+    swap_activation_threshold =
+        read_config(".virtual_memory.swap.activation_threshold", 90);
+    swap_deactivation_threshold =
+        read_config(".virtual_memory.swap.deactivation_threshold", 50);
+    swap_deactivation_time = read_config(".virtual_memory.wait_timeout", 10);
+    pressure_binding = read_config(".virtual_memory.pressure_binding", false);
+    deactivate_in_sleep =
+        read_config(".virtual_memory.deactivate_in_sleep", true);
+    threshold_type =
+        read_config(".dynamic_swappiness.threshold_type", string("psi"));
+  }
 };
 
 struct PressureMapping {
@@ -759,8 +772,11 @@ struct PressureMapping {
 struct DynamicSwappinessConfig {
   int min_swappiness;
   int max_swappiness;
-  string threshold_type = Config::THRESHOLD_TYPE;
+  Config _config;
+  string threshold_type = _config.threshold_type;
   PressureMapping pressure_mapping;
+  string mode;
+  int levels;
 
   void load_from_yaml(const YAML::Node &config) {
     auto dyn = config["dynamic_swappiness"];
@@ -770,10 +786,10 @@ struct DynamicSwappinessConfig {
         dyn["threshold_type"] ? dyn["threshold_type"].as<string>() : "psi";
     min_swappiness = dyn["swappiness_range"]["min"]
                          ? dyn["swappiness_range"]["min"].as<int>()
-                         : Config::SWAPPINESS_MIN;
+                         : _config.swappiness_min;
     max_swappiness = dyn["swappiness_range"]["max"]
                          ? dyn["swappiness_range"]["max"].as<int>()
-                         : Config::SWAPPINESS_MAX;
+                         : _config.swappiness_max;
 
     auto psi = dyn["threshold_psi"];
     if (psi) {
@@ -786,6 +802,8 @@ struct DynamicSwappinessConfig {
     if (mem) {
       pressure_mapping.mem_pressure = parse_pressure_pairs(mem);
     }
+    mode = psi["mode"].as<string>();
+    levels = psi["levels"] ? psi["levels"].as<int>() : 10;
   }
 };
 
@@ -814,18 +832,18 @@ class SwappinessManager {
     cached_legacy = sort_desc(config.pressure_mapping.mem_pressure);
   }
 
-  void evaluate_and_apply() {
-    int new_swappiness = config.threshold_type == "psi" && psi_available()
-                             ? evaluate_psi()
-                             : evaluate_legacy();
+  int get_swappiness() {
+    int swappiness = config.threshold_type == "psi" && psi_available()
+                         ? evaluate_psi()
+                         : evaluate_legacy();
+    return clamp(swappiness, config.min_swappiness, config.max_swappiness);
+  }
 
-    new_swappiness =
-        clamp(new_swappiness, config.min_swappiness, config.max_swappiness);
-
-    if (new_swappiness != last_swappiness) {
-      ALOGI("Swappiness -> %d", new_swappiness);
-      write_swappiness(new_swappiness);
-      last_swappiness = new_swappiness;
+  void apply_swappiness(int &swappiness) {
+    if (swappiness != last_swappiness) {
+      ALOGI("Swappiness -> %d", swappiness);
+      write_swappiness(swappiness);
+      last_swappiness = swappiness;
       reset_threshold_logs();
     }
   }
@@ -847,22 +865,96 @@ class SwappinessManager {
     return sorted;
   }
 
+  vector<int> compute_swappiness_steps(int min_swappiness, int max_swappiness,
+                                       int levels) {
+    vector<int> steps;
+    double step =
+        (max_swappiness - min_swappiness) / static_cast<double>(levels);
+    for (int i = 0; i <= levels; ++i) {
+      steps.insert(steps.begin(),
+                   static_cast<int>(round(max_swappiness - i * step)));
+    }
+    return steps;
+  }
+
+  int interpolate(double pressure, double pressure_min, double pressure_max,
+                  double swappiness_max, double swappiness_min) {
+    return (pressure - pressure_min) * (swappiness_min - swappiness_max) /
+               (pressure_max - pressure_min) +
+           swappiness_max;
+  }
+
+  int interpolate_sparse(double pressure, double pressure_min,
+                         double pressure_max, int swappiness_max,
+                         int swappiness_min, string log_id, int levels = 4) {
+    // Step 1: Clamp the pressure
+    pressure = clamp(pressure, pressure_min, pressure_max);
+    // Step 2: Normalize the pressure to [0,1]
+    double norm = (pressure - pressure_min) / (pressure_max - pressure_min);
+    // Step 3: Reverse the normalized value so high pressure → low swappiness
+    double reversed = 1.0 - norm;
+    // Step 4: Calculate index based on levels
+    int index = round(reversed * levels);
+    index = clamp(index, 0, levels);
+    // Step 5: Generate swappiness steps
+    vector<int> swappiness_steps =
+        compute_swappiness_steps(swappiness_min, swappiness_max, levels);
+
+    ostringstream oss;
+    oss << "[interpolate_sparse] Swappiness steps: ";
+    for (size_t i = 0; i < swappiness_steps.size(); ++i) {
+      if (i == index)
+        oss << "[" << swappiness_steps[i] << "] ";
+      else
+        oss << swappiness_steps[i] << " ";
+    }
+
+    log_manager.log(LogType::ONCE, LogPriority::DEBUG, log_id,
+                    "[interpolate_sparse] Clamped pressure: %.2f\n"
+                    "[interpolate_sparse] Normalized pressure: %.4f\n"
+                    "[interpolate_sparse] Reversed normalized: %.4f\n"
+                    "[interpolate_sparse] Level index: %d (out of %d)\n"
+                    "%s",
+                    pressure, norm, reversed, index, levels, oss.str().c_str());
+    
+    // Step 6: Return selected swappiness
+    return swappiness_steps[index];
+  }
+
   int evaluate_psi() {
     double cpu = read_pressure("cpu", "some", "avg10");
     double mem = read_pressure("memory", "some", "avg10");
     double io = read_pressure("io", "some", "avg10");
 
-    int cpu_swappiness = get_swappiness_from_pressure(cached_cpu, cpu);
-    int mem_swappiness = get_swappiness_from_pressure(cached_mem, mem);
-    int io_swappiness = get_swappiness_from_pressure(cached_io, io);
+    if (config.mode == "auto") {
+      vector<int> pressures = {};
+      vector<tuple<vector<pair<int, int>>, double, string>> types = {
+          {cached_cpu, cpu, "cpu_pressure"},
+          {cached_mem, mem, "mem_pressure"},
+          {cached_io, io, "io_pressure"}};
 
-    log_if_threshold("cpu_threshold", cpu_swappiness, cpu, mem, io);
-    log_if_threshold("mem_threshold", mem_swappiness, cpu, mem, io);
-    log_if_threshold("io_threshold", io_swappiness, cpu, mem, io);
+      for (const auto &[pair, pressure, log_id] : types) {
+        double max = pair.front().first;
+        double min = pair.back().first;
+        pressures.push_back(
+            interpolate_sparse(pressure, min, max, config.max_swappiness,
+                               config.min_swappiness, log_id, config.levels));
+      }
 
-    return (max({cpu_swappiness, mem_swappiness, io_swappiness}) != -1)
-               ? max({cpu_swappiness, mem_swappiness, io_swappiness})
-               : config.max_swappiness;
+      int swappiness = min({pressures[0], pressures[1], pressures[2]});
+      log_if_threshold("sparsed_swappiness", swappiness, cpu, mem, io);
+      return swappiness;
+    } else {
+      int cpu_swappiness = get_swappiness_from_pressure(cached_cpu, cpu);
+      int mem_swappiness = get_swappiness_from_pressure(cached_mem, mem);
+      int io_swappiness = get_swappiness_from_pressure(cached_io, io);
+      int swappiness = max({cpu_swappiness, mem_swappiness, io_swappiness});
+
+      log_if_threshold("cpu_threshold", cpu_swappiness, cpu, mem, io);
+      log_if_threshold("mem_threshold", mem_swappiness, cpu, mem, io);
+      log_if_threshold("io_threshold", io_swappiness, cpu, mem, io);
+      return (swappiness != -1) ? swappiness : config.max_swappiness;
+    }
   }
 
   int evaluate_legacy() {
@@ -888,6 +980,9 @@ class SwappinessManager {
     log_manager.reset("cpu_threshold");
     log_manager.reset("mem_threshold");
     log_manager.reset("io_threshold");
+    log_manager.reset("cpu_pressure");
+    log_manager.reset("mem_pressure");
+    log_manager.reset("io_pressure");
   }
 
   static int get_swappiness_from_pressure(const vector<pair<int, int>> &table,
@@ -903,18 +998,19 @@ class SwappinessManager {
  * Dynamic swappiness adjustment service.
  */
 void dyn_swap_service() {
-  float CONFIG_VERSION = Config::CONFIG_VERSION;
-  int SWAPPINESS_MAX = Config::SWAPPINESS_MAX;
-  int SWAPPINESS_MIN = Config::SWAPPINESS_MIN;
-  int ZRAM_ACTIVATION_THRESHOLD = Config::ZRAM_ACTIVATION_THRESHOLD;
-  int ZRAM_DEACTIVATION_THRESHOLD = Config::ZRAM_DEACTIVATION_THRESHOLD;
-  int SWAP_ACTIVATION_THRESHOLD = Config::SWAP_ACTIVATION_THRESHOLD;
-  int SWAP_DEACTIVATION_THRESHOLD = Config::SWAP_DEACTIVATION_THRESHOLD;
-  int SWAP_DEACTIVATION_TIME = Config::SWAP_DEACTIVATION_TIME;
-  bool PRESSURE_BINDING = Config::PRESSURE_BINDING;
-  bool DEACTIVATE_IN_SLEEP = Config::DEACTIVATE_IN_SLEEP;
-  string THRESHOLD_TYPE = Config::THRESHOLD_TYPE;
-  bool in_pressure_logged;
+  Config config;
+  config.load_from_yaml();
+  float CONFIG_VERSION = config.config_version;
+  int SWAPPINESS_MAX = config.swappiness_max;
+  int SWAPPINESS_MIN = config.swappiness_min;
+  int ZRAM_ACTIVATION_THRESHOLD = config.zram_activation_threshold;
+  int ZRAM_DEACTIVATION_THRESHOLD = config.zram_deactivation_threshold;
+  int SWAP_ACTIVATION_THRESHOLD = config.swap_activation_threshold;
+  int SWAP_DEACTIVATION_THRESHOLD = config.swap_deactivation_threshold;
+  int SWAP_DEACTIVATION_TIME = config.swap_deactivation_time;
+  bool PRESSURE_BINDING = config.pressure_binding;
+  bool DEACTIVATE_IN_SLEEP = config.deactivate_in_sleep;
+  string THRESHOLD_TYPE = config.threshold_type;
 
   YAML::Node configRoot = YAML::LoadFile(get_config_file());
   DynamicSwappinessConfig dynConfig;
@@ -945,7 +1041,8 @@ void dyn_swap_service() {
 
   while (running) {
     if (!is_doze_mode()) {
-      swappinessManager.evaluate_and_apply();
+      new_swappiness = swappinessManager.get_swappiness();
+      swappinessManager.apply_swappiness(new_swappiness);
 
       if (DEACTIVATE_IN_SLEEP) {
         start_swapoff_timer_if_idle(wait_timeout);
@@ -1033,8 +1130,10 @@ void dyn_swap_service() {
 
               // If one of condition is met turn off SWAP
               if (is_condition_met) {
-                ALOGI("Device sleep more than %d minutes. Deactivating swap...",
-                      SWAP_DEACTIVATION_TIME);
+                log_manager.log(
+                    LogType::ONCE, LogPriority::WARN, "condition met",
+                    "sleep more than %d minutes. Deactivating swap...",
+                    SWAP_DEACTIVATION_TIME);
                 swapoff_(last_active_swap, swapoff_thread);
               } else if (kill_low_swap) {
                 for (auto swap : low_usage_swaps) {
@@ -1045,6 +1144,7 @@ void dyn_swap_service() {
             } catch (const out_of_range &e) {
               log_manager.log(LogType::ONCE, LogPriority::WARN, "swapoff_end",
                               "No second last swap.");
+              log_manager.reset("condition met");
             }
           }
         }
