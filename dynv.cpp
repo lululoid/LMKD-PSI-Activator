@@ -777,6 +777,12 @@ struct DynamicSwappinessConfig {
   PressureMapping pressure_mapping;
   string mode;
   int levels;
+  int cpu_max;
+  int cpu_min;
+  int mem_max;
+  int mem_min;
+  int io_max;
+  int io_min;
 
   void load_from_yaml(const YAML::Node &config) {
     auto dyn = config["dynamic_swappiness"];
@@ -804,6 +810,12 @@ struct DynamicSwappinessConfig {
     }
     mode = psi["mode"].as<string>();
     levels = psi["levels"] ? psi["levels"].as<int>() : 10;
+    cpu_max = psi["auto_cpu"]["max"] ? psi["auto_cpu"]["max"].as<int>() : 100;
+    cpu_min = psi["auto_cpu"]["min"] ? psi["auto_cpu"]["min"].as<int>() : 15;
+    mem_max = psi["auto_mem"]["max"] ? psi["auto_mem"]["max"].as<int>() : 25;
+    mem_min = psi["auto_mem"]["min"] ? psi["auto_mem"]["min"].as<int>() : 15;
+    io_max = psi["auto_io"]["max"] ? psi["auto_io"]["max"].as<int>() : 100;
+    io_min = psi["auto_io"]["min"] ? psi["auto_io"]["min"].as<int>() : 35;
   }
 };
 
@@ -935,20 +947,20 @@ class SwappinessManager {
   }
 
   int evaluate_psi() {
-    double cpu = read_pressure("cpu", "some", "avg10");
-    double mem = read_pressure("memory", "some", "avg10");
-    double io = read_pressure("io", "some", "avg10");
+    double cpu = read_pressure("cpu", "some", "avg60");
+    double mem = read_pressure("memory", "some", "avg60");
+    double io = read_pressure("io", "some", "avg60");
 
     if (config.mode == "auto") {
       vector<int> pressures = {};
-      vector<tuple<vector<pair<int, int>>, double, string>> types = {
-          {cached_cpu, cpu, "cpu_pressure"},
-          {cached_mem, mem, "mem_pressure"},
-          {cached_io, io, "io_pressure"}};
+      vector<tuple<pair<int, int>, double, string>> types = {
+          {make_pair(config.cpu_max, config.cpu_min), cpu, "cpu_pressure"},
+          {make_pair(config.mem_max, config.mem_min), mem, "mem_pressure"},
+          {make_pair(config.io_max, config.io_min), io, "io_pressure"}};
 
       for (const auto &[pair, pressure, log_id] : types) {
-        double max = pair.front().first;
-        double min = pair.back().first;
+        double max = pair.first;
+        double min = pair.second;
         pressures.push_back(
             interpolate_sparse(pressure, min, max, config.max_swappiness,
                                config.min_swappiness, log_id, config.levels));
