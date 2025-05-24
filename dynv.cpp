@@ -563,8 +563,8 @@ int get_memory_pressure() {
   return static_cast<int>((mem_used * 100) / total_used);
 }
 
-template <typename T>
-bool contains(const string &value, vector<T> &vector_data) {
+template <typename T, typename U>
+bool contains(const T &value, vector<U> &vector_data) {
   return find(vector_data.begin(), vector_data.end(), value) !=
          vector_data.end();
 }
@@ -784,6 +784,18 @@ struct DynamicSwappinessConfig {
   int io_max;
   int io_min;
 
+  string pressure_to_string(const vector<pair<int, int>> &pressure_vec) {
+    stringstream ss;
+    for (size_t i = 0; i < pressure_vec.size(); ++i) {
+      ss << "[" << pressure_vec[i].first << "," << pressure_vec[i].second
+         << "]";
+      if (i != pressure_vec.size() - 1) {
+        ss << ", ";
+      }
+    }
+    return ss.str();
+  }
+
   void load_from_yaml(const YAML::Node &config) {
     auto dyn = config["dynamic_swappiness"];
     if (!dyn) return;
@@ -799,9 +811,32 @@ struct DynamicSwappinessConfig {
 
     auto psi = dyn["threshold_psi"];
     if (psi) {
-      pressure_mapping.cpu = parse_pressure_pairs(psi["cpu_pressure"]);
-      pressure_mapping.memory = parse_pressure_pairs(psi["memory_pressure"]);
-      pressure_mapping.io = parse_pressure_pairs(psi["io_pressure"]);
+      // Provide default values if not present in YAML
+      pressure_mapping.cpu =
+          psi["cpu_pressure"] && psi["cpu_pressure"].IsSequence()
+              ? parse_pressure_pairs(psi["cpu_pressure"])
+              : vector<pair<int, int>>{
+                    {10, 160}, {20, 120}, {30, 80}, {40, 60}, {80, 40}};
+      pressure_mapping.memory =
+          psi["memory_pressure"] && psi["memory_pressure"].IsSequence()
+              ? parse_pressure_pairs(psi["memory_pressure"])
+              : vector<pair<int, int>>{
+                    {5, 160}, {10, 140}, {15, 100}, {20, 60}, {25, 40}};
+      pressure_mapping.io =
+          psi["io_pressure"] && psi["io_pressure"].IsSequence()
+              ? parse_pressure_pairs(psi["io_pressure"])
+              : vector<pair<int, int>>{
+                    {10, 140}, {15, 100}, {20, 80}, {25, 100}};
+
+      log_manager.log(LogType::ALWAYS, LogPriority::DEBUG,
+                      "cpu_pressure_mapping", "CPU Pressure Mapping: %s",
+                      pressure_to_string(pressure_mapping.cpu).c_str());
+      log_manager.log(LogType::ALWAYS, LogPriority::DEBUG,
+                      "memory_pressure_mapping", "Memory Pressure Mapping: %s",
+                      pressure_to_string(pressure_mapping.memory).c_str());
+      log_manager.log(LogType::ALWAYS, LogPriority::DEBUG,
+                      "io_pressure_mapping", "IO Pressure Mapping: %s",
+                      pressure_to_string(pressure_mapping.io).c_str());
     }
 
     auto mem = dyn["threshold_mem_pressure"];
@@ -812,8 +847,10 @@ struct DynamicSwappinessConfig {
     levels = psi["levels"] ? psi["levels"].as<int>() : 10;
     cpu_max = psi["auto_cpu"]["max"] ? psi["auto_cpu"]["max"].as<int>() : 100;
     cpu_min = psi["auto_cpu"]["min"] ? psi["auto_cpu"]["min"].as<int>() : 15;
-    mem_max = psi["auto_mem"]["max"] ? psi["auto_mem"]["max"].as<int>() : 25;
-    mem_min = psi["auto_mem"]["min"] ? psi["auto_mem"]["min"].as<int>() : 15;
+    mem_max =
+        psi["auto_memory"]["max"] ? psi["auto_memory"]["max"].as<int>() : 25;
+    mem_min =
+        psi["auto_memory"]["min"] ? psi["auto_memory"]["min"].as<int>() : 15;
     io_max = psi["auto_io"]["max"] ? psi["auto_io"]["max"].as<int>() : 100;
     io_min = psi["auto_io"]["min"] ? psi["auto_io"]["min"].as<int>() : 35;
   }
@@ -928,7 +965,6 @@ class SwappinessManager {
         compute_swappiness_steps(swappiness_min, swappiness_max, levels);
 
     ostringstream oss;
-    oss << "[interpolate_sparse] Swappiness steps: ";
     for (size_t i = 0; i < swappiness_steps.size(); ++i) {
       if (i == index)
         oss << "[" << swappiness_steps[i] << "] ";
@@ -976,9 +1012,12 @@ class SwappinessManager {
 
       return swappiness;
     } else {
-      int cpu_swappiness = get_swappiness_from_pressure(cached_cpu, cpu);
-      int mem_swappiness = get_swappiness_from_pressure(cached_mem, mem);
-      int io_swappiness = get_swappiness_from_pressure(cached_io, io);
+      int cpu_swappiness = max(get_swappiness_from_pressure(cached_cpu, cpu),
+                               config.min_swappiness);
+      int mem_swappiness = max(get_swappiness_from_pressure(cached_mem, mem),
+                               config.min_swappiness);
+      int io_swappiness = max(get_swappiness_from_pressure(cached_io, io),
+                              config.min_swappiness);
       int swappiness = max({cpu_swappiness, mem_swappiness, io_swappiness});
 
       log_if_threshold("cpu_threshold", cpu_swappiness, cpu, mem, io);
@@ -1067,14 +1106,23 @@ void dyn_swap_service() {
   bool is_condition_met, kill_low_swap, in_pressure;
   bool threshold_psi = THRESHOLD_TYPE == "psi";
   bool threshold_mem_pressure = THRESHOLD_TYPE == "mem_pressure";
+  bool dynv_enabled = read_config(".dynamic_swappiness.enable", true);
+  if (!dynv_enabled) {
+    swappinessManager.apply_swappiness(SWAPPINESS_MAX);
+  }
   is_swapoff_session = (!DEACTIVATE_IN_SLEEP) ? true : false;
 
   ALOGI("Config version: %.2f", CONFIG_VERSION);
 
   while (running) {
     if (!is_doze_mode()) {
-      new_swappiness = swappinessManager.get_swappiness();
-      swappinessManager.apply_swappiness(new_swappiness);
+      if (dynv_enabled) {
+        new_swappiness = swappinessManager.get_swappiness();
+        swappinessManager.apply_swappiness(new_swappiness);
+      } else {
+        log_manager.log(LogType::ONCE, LogPriority::INFO, "dynv disabled",
+                        "Dynamic Swappiness is disabled.");
+      }
 
       if (DEACTIVATE_IN_SLEEP) {
         start_swapoff_timer_if_idle(wait_timeout);
@@ -1281,9 +1329,7 @@ int main() {
 
   thread adjust_thread(dyn_swap_service);
   thread fmiop_thread(fmiop);
-
   adjust_thread.join();
   fmiop_thread.join();
-
   return 0;
 }
