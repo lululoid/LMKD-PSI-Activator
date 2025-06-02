@@ -4,21 +4,31 @@
 
 ---
 
-> ⚠️ **CAUTION – MIUI USERS**  
-> This module may cause MIUI to aggressively kill apps like **VPNs**.  
+> [!CAUTION]
+> **MIUI USER**. This module may cause MIUI to aggressively kill apps like **VPNs**.  
 > **Fix:** Install the [NoSwipeToKill](https://github.com/dantmnf/NoSwipeToKill) LSPosed module by [dantmnf](https://github.com/dantmnf).
+
+---
+
+>[!NOTE]
+>I use SWAP and ZRAM term interchangeably in this module.
 
 ---
 
 ## **✨ Features**
 
+### **🧬 Kernel Support Required**
+
 - **🗑️ UFFD Garbage Collection** – Activates **Userfaultfd (UFFD) garbage collection**, optimizing memory management and reducing swap-related overhead.
 - **🔄 ZRAM Deduplication** – Enables **data deduplication in ZRAM** (if supported by kernel). **Deduplicate** ZRAM data to reduce amount of memory consumption.
+
+###
+
 - **🚀 Multi-ZRAM Support** – Dynamically manages **multiple ZRAM partitions** for better memory management.
 - **📂 Swap Creation & Removal** – Manage swap **on demand** via `action.sh` (max swap = RAM size).
-- 📈 **Incremental Dynamic Swap** – Implements adaptive swap expansion, progressively adjusting swap size based on real-time system memory pressure.
+- 📈 **Incremental Dynamic Swap** – Expands swap space progressively based on real-time system pressure.
 - ⚡ **Migrated to C++** – Rewritten in C++ for faster execution, lower CPU utilization, and improved overall system stability compared to older implementations.
-- **🔄 Advanced Dynamic Swappiness** – Adjusts `swappiness` **in real-time** depending on memory pressure, ensuring an optimal balance between performance and responsiveness.
+- **🔄 Advanced Dynamic Swappiness** – Adjusts `swappiness` **in real-time** depending on memory pressure, ensuring an optimal balance between performance and multitask.
 - **🛠️ LMKD PSI Optimizations** – Fine-tuned **Low Memory Killer Daemon (LMKD) PSI parameters**, improving low-memory handling and responsiveness based on real-world testing.
 - **📝 YAML-Based Configuration** – **Customizable** settings via `config.yaml`.
 - **📊 Memory Pressure Monitoring** – **Reports live RAM pressure** through Magisk.
@@ -27,34 +37,62 @@
 
 ## **🔧 Configuration**
 
-- Uses a **YAML config file** for flexible tuning.
-- Located at:
+- Configurable via a **YAML file**:
 
-  ```
+  ```markdown
   Internal storage → Android/fmiop/config.yaml
   ```
 
 ### **📜 Example config.yaml**
 
 ```yaml
-config_version: 0.6
+config_version: 1.4
 dynamic_swappiness:
+  enable: true # Wether to enable dynamic swappiness or not
+  threshold_type: "psi" # "psi" or "legacy".
   swappiness_range:
-    max: 100
-    min: 80
-  threshold:
-    cpu_pressure: 40
-    memory_pressure: 15
-    io_pressure: 30
-  step: 2
-  apply_step: 20
+    max: 140
+    min: 40
+  threshold_psi:
+    mode: "auto" # "auto" or "manual"
+    # Max and min sparsed into [40 57 73 90 107 123 140] for 6 levels
+    # 6 levels would be [40 57 73 90 107 123 140]
+    levels: 6
+    # Each of auto settings below control swappiness sensitivity
+    # higher range from min to max means less sensitive, careful low range could lead to oscilations
+    # which could lead to system instability
+    auto_cpu:
+      max: 80
+      min: 0
+      time_window: "avg60" # Choose between: avg10, avg60, avg300. Smaller means more sensitive
+    auto_memory:
+      max: 20
+      min: 0
+      time_window: "avg60"
+    auto_io:
+      max: 25
+      min: 0
+      time_window: "avg60"
+    # Pairs of pressure values and their corresponding swappiness values
+    # Choose the highest value any pressure reached
+    # Default to if higher pressure then lower swappiness
+    cpu_pressure: [[5, 120], [10, 100], [20, 80], [60, 60], [100, 40]]
+    memory_pressure: [[5, 120], [10, 100], [15, 90], [20, 60], [25, 40]]
+    io_pressure: [[10, 120], [15, 100], [25, 60], [30, 40]]
+  # Percentage of memory usage to activate swappiness
+  # Lower memory pressure values means higher memory pressure
+  # which is confusing, ask google why.
+  threshold_mem_pressure: [[60, 80], [50, 60], [40, 40]]
 virtual_memory:
-  enable: true
-  pressure_binding: false
+  enable: true # Wether to enable dynamic zram or not
+  pressure_binding: false # True means only activate zram when pressure is high
+  # Wether to deactivate zram when system is in sleep or immediately
   deactivate_in_sleep: true
-  wait_timeout: 10
+  wait_timeout: 600 # Time in seconds to wait before deactivating zram, default to 10 minutes.
   zram:
-    activation_threshold: 75
+    # Percentage of ZRAM usage to activate next zram
+    activation_threshold: 80
+    # Minimum size in MB of used swap to deactivate zram
     deactivation_threshold: 55
   swap:
     activation_threshold: 90
@@ -65,30 +103,34 @@ virtual_memory:
 
 ## **📖 Explanation of Key Settings**
 
+### **🧠 What You Wanna Use**
+
+- **swappiness_range**: To control multitasking performance, also performance during high pressure. Low min will kill more apps which should improve performance. Lower min → more aggressive app killing = faster.
+  - **enable**: If you have issue with dynamic swappiness you can turn it off.
+- **threshold_psi**: Control dynamic swappiness sensitivity—higher values = less sensitive changes.
+  - **auto_cpu**: This is more influential, changes a lot, control sensitivity of dynamic swappiness based on cpu presure, the idea is _when high cpu pressure we should decrease swapping to improve performance_, I never really test it but here is the module.
+
 ### **🌀 Dynamic Swappiness**
 
-- **swappiness_range** – Controls swap aggressiveness:
-  - **Low (e.g., 60)** – Favors RAM, keeps apps in memory.
-  - **High (e.g., 100)** – Frees RAM quickly, better for multitasking.
-- **threshold** – Adjusts swappiness based on system pressure:
-  - **cpu_pressure** – CPU load threshold.
-  - **memory_pressure** – Memory usage threshold.
-  - **io_pressure** – I/O operations threshold.
-- **step** – Swappiness **increment per adjustment** (higher = more aggressive).
-- **apply_step** – how many step to when to adjust swappiness.
-  Too often swappiness update affect performance.
+- **swappiness_range** – Controls swap limit:
+  - **Min** – (e.g, 40). - Use less ZRAM/SWAP, kill more apps, improve performance.
+  - **High (e.g., 140)** – Move memory to ZRAM/SWAP, improve multitasking. Lower this if your phone get laggy.
+- **threshold_psi** – Threshold to adjusts swappiness based on system pressure:
+  - **mode**
+    - **auto**: `auto` will generate swappiness levels between your min and max. Like [40 60 80 100 120] for 4 levels between 40 and 120 swappiness, the program will automatically choose which swappiness to use based on system pressures.
+    - **auto_cpu and else**: Sensitivity for each hardware pressure.
+      - **time_window**: Pick between `avg10`, `avg60`, `avg300`. Smaller = more sensitive, so far avg60 is a nice spot.
+  - **cpu_pressure and else**: Manual configuration for each pressure range. It's a pair in `[pressure, swappiness]`, if the pressure reached then use that swappiness.
 
 ### **🗃️ Virtual Memory (VM) Optimization**
 
 - **enable** – Enables VM optimizations (**recommended** for multitasking).
-- **pressure_binding** – Enables swap **only when system pressure is high** (**EXPERIMENTAL**).
+- ~~**pressure_binding** – Activates swap **only under pressure** (⚠️ experimental). **This function is broken**.~~
 - **deactivate_in_sleep** – Only deactivate in sleep to be more **battery** friendly.
-- **zram** – Handles **incremental ZRAM management**:
-  - **activation_threshold** – **% usage of last ZRAM partition** before a new one is activated.
-  - **deactivation_threshold** – **MB size** where ZRAM is released.
-- **swap** – Handles **incremental swap management**:
-  - **activation_threshold** – **% system pressure** before swap is enabled.
-  - **deactivation_threshold** – **MB size** where swap is released.
+- **zram**: Handles **incremental ZRAM management**
+  - **activation_threshold**: Percentage of ZRAM usage to activate next zram
+  - **deactivation_threshold**: Minimum size in MB of used swap to deactivate zram. The default is 55MB, deactivating ZRAM when high usage can increase cpu usage. It's why only deactivate in sleep, the program also deactivate swap automatically when usage only 10MB.
+- **swap**: You get it, its same as above except this one for SWAP.
 
 ---
 
@@ -111,5 +153,24 @@ virtual_memory:
 ✔️ **Smarter ZRAM & swap handling** 📈  
 ✔️ **Dynamic memory tuning** 🧠  
 ✔️ **C++ powered speed & efficiency** ⚡
+⚙️ **Tuning example** ⇒ [Performance tuning](https://github.com/lululoid/LMKD-PSI-Activator/blob/main/tuning_example.md)
 
-This **isn't just a tweak**—it’s a **real optimization for smoother performance**! 🏎️💨
+### Want to see how the module works?
+
+Try opening a bunch of apps or gaming while opening other apps then use this command on termux:
+
+```shell
+sudo logcat -s fmiop -v brief
+```
+
+Or on your computer(Make sure your developer mode active, and you authorized your computer):
+
+```shell
+adb logcat -s fmiop -v brief
+```
+
+Or just check log in:
+
+``` markdown
+ Internal storage → Android/fmiop/archives
+```
