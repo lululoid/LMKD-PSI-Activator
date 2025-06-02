@@ -432,7 +432,7 @@ update_pressure_report() {
 		swap_status="❌ Not Running"
 	fi
 
-	cp $LOG_FOLDER/module.prop $module_prop
+	[ -z $(cat $module_prop) ] && cp $LOG_FOLDER/module.prop $module_prop
 
 	# Use sed to replace the values correctly
 	sed -i -E \

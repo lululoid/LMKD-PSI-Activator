@@ -783,6 +783,9 @@ struct DynamicSwappinessConfig {
   int mem_min;
   int io_max;
   int io_min;
+  string cpu_time_window;
+  string mem_time_window;
+  string io_time_window;
 
   string pressure_to_string(const vector<pair<int, int>> &pressure_vec) {
     stringstream ss;
@@ -845,14 +848,23 @@ struct DynamicSwappinessConfig {
     }
     mode = psi["mode"].as<string>();
     levels = psi["levels"] ? psi["levels"].as<int>() : 10;
-    cpu_max = psi["auto_cpu"]["max"] ? psi["auto_cpu"]["max"].as<int>() : 100;
-    cpu_min = psi["auto_cpu"]["min"] ? psi["auto_cpu"]["min"].as<int>() : 15;
+    cpu_max = psi["auto_cpu"]["max"] ? psi["auto_cpu"]["max"].as<int>() : 80;
+    cpu_min = psi["auto_cpu"]["min"] ? psi["auto_cpu"]["min"].as<int>() : 0;
     mem_max =
-        psi["auto_memory"]["max"] ? psi["auto_memory"]["max"].as<int>() : 25;
+        psi["auto_memory"]["max"] ? psi["auto_memory"]["max"].as<int>() : 20;
     mem_min =
-        psi["auto_memory"]["min"] ? psi["auto_memory"]["min"].as<int>() : 15;
-    io_max = psi["auto_io"]["max"] ? psi["auto_io"]["max"].as<int>() : 100;
-    io_min = psi["auto_io"]["min"] ? psi["auto_io"]["min"].as<int>() : 35;
+        psi["auto_memory"]["min"] ? psi["auto_memory"]["min"].as<int>() : 0;
+    io_max = psi["auto_io"]["max"] ? psi["auto_io"]["max"].as<int>() : 25;
+    io_min = psi["auto_io"]["min"] ? psi["auto_io"]["min"].as<int>() : 0;
+    cpu_time_window = psi["auto_cpu"]["time_window"]
+                          ? psi["auto_cpu"]["time_window"].as<string>()
+                          : "avg60";
+    mem_time_window = psi["auto_memory"]["time_window"]
+                          ? psi["auto_memory"]["time_window"].as<string>()
+                          : "avg60";
+    io_time_window = psi["auto_io"]["time_window"]
+                         ? psi["auto_io"]["time_window"].as<string>()
+                         : "avg60";
   }
 };
 
@@ -983,9 +995,9 @@ class SwappinessManager {
   }
 
   int evaluate_psi() {
-    double cpu = read_pressure("cpu", "some", "avg60");
-    double mem = read_pressure("memory", "some", "avg60");
-    double io = read_pressure("io", "some", "avg60");
+    double cpu = read_pressure("cpu", "some", config.cpu_time_window);
+    double mem = read_pressure("memory", "some", config.mem_time_window);
+    double io = read_pressure("io", "some", config.io_time_window);
 
     if (config.mode == "auto") {
       vector<int> pressures = {};
@@ -1004,11 +1016,13 @@ class SwappinessManager {
 
       int swappiness = min({pressures[0], pressures[1], pressures[2]});
       log_if_threshold("sparsed_swappiness", swappiness, cpu, mem, io);
-      log_manager.log(LogType::ONCE, LogPriority::INFO, "swappiness_eval",
-                      "[AUTO MODE] CPU: %.2f → %d, MEM: %.2f → %d, IO: %.2f → "
-                      "%d → FINAL: %d",
-                      cpu, pressures[0], mem, pressures[1], io, pressures[2],
-                      swappiness);
+      log_manager.log(
+          LogType::ONCE, LogPriority::INFO, "swappiness_eval",
+          "[AUTO MODE] CPU(%s): %.2f → %d, MEM(%s): %.2f → %d, IO(%s): %.2f → "
+          "%d → FINAL: %d",
+          config.cpu_time_window.c_str(), cpu, pressures[0],
+          config.mem_time_window.c_str(), mem, pressures[1],
+          config.io_time_window.c_str(), io, pressures[2], swappiness);
 
       return swappiness;
     } else {

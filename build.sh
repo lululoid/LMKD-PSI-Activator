@@ -20,12 +20,20 @@ check_root() {
 
 # Validate Arguments
 validate_args() {
-	for arg in "$@"; do
-		if [[ ! "$arg" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-			echo "> Error: Arguments must be numeric"
-			exit 1
-		fi
-	done
+	local version="$1"
+	local versionCode="$2"
+
+	# version: allow x.x, x.x.x, x.x.x.x, etc. (at least one dot, all numeric parts)
+	if [[ ! "$version" =~ ^[0-9]+(\.[0-9]+)+$ ]]; then
+		echo "> Error: Version must be in format x.x, x.x.x, x.x.x.x, etc."
+		exit 1
+	fi
+
+	# versionCode: must be integer
+	if [[ ! "$versionCode" =~ ^[0-9]+$ ]]; then
+		echo "> Error: versionCode must be numeric"
+		exit 1
+	fi
 }
 
 # Read version from module.prop

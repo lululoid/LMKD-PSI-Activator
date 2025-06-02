@@ -155,7 +155,7 @@ update_config() {
 		yq -i ".config_version = $current_config_v" $current_config
 		cp $current_config $CONFIG_INTERNAL
 		cp $CONFIG_INTERNAL $CONFIG_FILE
-		printf '\n- Config: %s is updated' "$CONFIG_INTERNAL"
+		printf '\n\n- Config: %s is updated' "$CONFIG_INTERNAL"
 		config_backed=true
 	elif [ "$last_config_v" = "null" ] || [ $is_update -eq 1 ]; then # Adding new values
 		cp $CONFIG_INTERNAL $CONFIG_INTERNAL.old

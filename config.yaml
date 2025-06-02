@@ -1,16 +1,36 @@
-config_version: 0.9
+config_version: 1.4
 dynamic_swappiness:
-  threshold_type: "psi"
+  enable: true # Wether to enable dynamic swappiness or not
+  threshold_type: "psi" # "psi" or "legacy".
   swappiness_range:
-    max: 100
-    min: 60
+    max: 140
+    min: 40
   threshold_psi:
+    mode: "auto" # "auto" or "manual"
+    # Max and min sparsed into [40 57 73 90 107 123 140] for 6 levels
+    # 6 levels would be [40 57 73 90 107 123 140]
+    levels: 6
+    # Each of auto settings below control swappiness sensitivity
+    # higher range from min to max means less sensitive, careful low range could lead to oscilations
+    # which could lead to system instability
+    auto_cpu:
+      max: 80
+      min: 0
+      time_window: "avg60" # Choose between: avg10, avg60, avg300. Smaller means more sensitive
+    auto_memory:
+      max: 20
+      min: 0
+      time_window: "avg60"
+    auto_io:
+      max: 25
+      min: 0
+      time_window: "avg60"
     # Pairs of pressure values and their corresponding swappiness values
     # Choose the highest value any pressure reaches
     # Default to if higher pressure then lower swappiness
-    cpu_pressure: [[30, 80], [35, 60], [40, 50], [50, 40]]
-    memory_pressure: [[15, 80], [20, 60], [25, 40]]
-    io_pressure: [[25, 80], [30, 60], [35, 40]]
+    cpu_pressure: [[5, 120], [10, 100], [20, 80], [60, 60], [100, 40]]
+    memory_pressure: [[5, 120], [10, 100], [15, 90], [20, 60], [25, 40]]
+    io_pressure: [[10, 120], [15, 100], [25, 60], [30, 40]]
   # Percentage of memory usage to activate swappiness
   # Lower memory pressure values means higher memory pressure
   # which is confusing, ask google why.
@@ -19,13 +39,13 @@ virtual_memory:
   enable: true # Wether to enable dynamic zram or not
   pressure_binding: false # True means only activate zram when pressure is high
   # Wether to deactivate zram when system is in sleep or immediately
-  deactivate_in_sleep: true 
-  wait_timeout: 600 # Time in seconds to wait before deactivating zram
+  deactivate_in_sleep: true
+  wait_timeout: 600 # Time in seconds to wait before deactivating zram, default to 10 minutes.
   zram:
     # Percentage of memory usage to activate next zram
-    activation_threshold: 80 
-    # Minimum size in MB of free memory to deactivate zram
-    deactivation_threshold: 55 
+    activation_threshold: 80
+    # Minimum size in MB of used swap to deactivate zram
+    deactivation_threshold: 55
   swap:
     activation_threshold: 90
     deactivation_threshold: 40
