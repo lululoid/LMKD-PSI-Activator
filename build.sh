@@ -129,6 +129,7 @@ build_yaml-cpp() {
 		BUILD_DIR="build-android-$ABI"
 		if [ ! -d "$BUILD_DIR" ]; then
 			echo "- Building yaml-cpp for $ABI"
+			git clone 'https://github.com/jbeder/yaml-cpp.git' 2>/dev/null || true
 			cmake -S . -B "$BUILD_DIR" \
 				-DCMAKE_TOOLCHAIN_FILE="$NDK_PATH/build/cmake/android.toolchain.cmake" \
 				-DANDROID_ABI="$ABI" \
@@ -175,11 +176,12 @@ build_dynv() {
 }
 
 # Parse arguments
-while getopts ":i" opt; do
+while getopts ":i:p" opt; do
 	case "$opt" in
 	i) INSTALL=true ;; # Enable installation
+	p) PUSH_TO_PHONE=true ;; # Set tag to prod
 	*)
-		echo "Usage: $0 [-i] <version> <versionCode>"
+		echo "Usage: $0 [-i] [-p] <version> <versionCode>"
 		exit 1
 		;;
 	esac
@@ -230,7 +232,9 @@ main() {
 		echo "- Skipping installation. Package built at: $package_name"
 	fi
 	
-	adb push "$package_name" /sdcard/Download
+	if [ ! -f "$package_name" ] || [ "$PUSH_TO_PHONE" == "true" ]; then 
+		adb push "$package_name" /sdcard/Download
+	fi
 }
 
 # Run the script
