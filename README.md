@@ -22,7 +22,7 @@
 - **🗑️ UFFD Garbage Collection** – Activates **Userfaultfd (UFFD) garbage collection**, optimizing memory management and reducing swap-related overhead.
 - **🔄 ZRAM Deduplication** – Enables **data deduplication in ZRAM** (if supported by kernel). **Deduplicate** ZRAM data to reduce amount of memory consumption.
 
-###
+### **No Kernel Support Required**
 
 - **🚀 Multi-ZRAM Support** – Dynamically manages **multiple ZRAM partitions** for better memory management.
 - **📂 Swap Creation & Removal** – Manage swap **on demand** via `action.sh` (max swap = RAM size).
