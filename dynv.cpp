@@ -833,14 +833,22 @@ struct DynamicSwappinessConfig {
       return;
     }
 
-    threshold_type =
-        dyn["threshold_type"] ? dyn["threshold_type"].as<string>() : "psi";
-    min_swappiness = dyn["swappiness_range"]["min"]
-                         ? dyn["swappiness_range"]["min"].as<int>()
-                         : _config.swappiness_min;
-    max_swappiness = dyn["swappiness_range"]["max"]
-                         ? dyn["swappiness_range"]["max"].as<int>()
-                         : _config.swappiness_max;
+    threshold_type = (dyn["threshold_type"] && dyn["threshold_type"].IsScalar())
+                         ? dyn["threshold_type"].as<string>()
+                         : "psi";
+    if (dyn["swappiness_range"] && dyn["swappiness_range"].IsMap()) {
+      min_swappiness = (dyn["swappiness_range"]["min"] &&
+                        dyn["swappiness_range"]["min"].IsScalar())
+                           ? dyn["swappiness_range"]["min"].as<int>()
+                           : _config.swappiness_min;
+      max_swappiness = (dyn["swappiness_range"]["max"] &&
+                        dyn["swappiness_range"]["max"].IsScalar())
+                           ? dyn["swappiness_range"]["max"].as<int>()
+                           : _config.swappiness_max;
+    } else {
+      min_swappiness = _config.swappiness_min;
+      max_swappiness = _config.swappiness_max;
+    }
 
     ALOGD("threshold_type: %s", threshold_type.c_str());
     ALOGD("min_swappiness: %d, max_swappiness: %d", min_swappiness,
@@ -876,36 +884,50 @@ struct DynamicSwappinessConfig {
     }
 
     auto mem = dyn["threshold_mem_pressure"];
-    if (mem) {
-      pressure_mapping.mem_pressure = parse_pressure_pairs(mem);
-      ALOGD("Mem Pressure Mapping: %s",
-            pressure_to_string(pressure_mapping.mem_pressure).c_str());
-    } else {
-      ALOGW("threshold_mem_pressure section not found in config.");
-    }
-    mode = psi && psi["mode"] ? psi["mode"].as<string>() : "auto";
-    levels = psi && psi["levels"] ? psi["levels"].as<int>() : 10;
-    cpu_max = psi && psi["auto_cpu"] && psi["auto_cpu"]["max"]
+    mode = (psi && psi["mode"] && psi["mode"].IsScalar())
+               ? psi["mode"].as<string>()
+               : "auto";
+    levels = (psi && psi["levels"] && psi["levels"].IsScalar())
+                 ? psi["levels"].as<int>()
+                 : 10;
+    cpu_max = (psi && psi["auto_cpu"] && psi["auto_cpu"]["max"] &&
+               psi["auto_cpu"]["max"].IsScalar())
                   ? psi["auto_cpu"]["max"].as<int>()
                   : 80;
-    cpu_min = psi && psi["auto_cpu"] && psi["auto_cpu"]["min"]
+    cpu_min = (psi && psi["auto_cpu"] && psi["auto_cpu"]["min"] &&
+               psi["auto_cpu"]["min"].IsScalar())
                   ? psi["auto_cpu"]["min"].as<int>()
                   : 0;
-    mem_max = psi && psi["auto_memory"] && psi["auto_memory"]["max"]
+    mem_max = (psi && psi["auto_memory"] && psi["auto_memory"]["max"] &&
+               psi["auto_memory"]["max"].IsScalar())
                   ? psi["auto_memory"]["max"].as<int>()
                   : 20;
-    mem_min = psi && psi["auto_memory"] && psi["auto_memory"]["min"]
+    mem_min = (psi && psi["auto_memory"] && psi["auto_memory"]["min"] &&
+               psi["auto_memory"]["min"].IsScalar())
                   ? psi["auto_memory"]["min"].as<int>()
                   : 0;
-    io_max = psi && psi["auto_io"] && psi["auto_io"]["max"]
+    io_max = (psi && psi["auto_io"] && psi["auto_io"]["max"] &&
+              psi["auto_io"]["max"].IsScalar())
                  ? psi["auto_io"]["max"].as<int>()
                  : 25;
-    io_min = psi && psi["auto_io"] && psi["auto_io"]["min"]
+    io_min = (psi && psi["auto_io"] && psi["auto_io"]["min"] &&
+              psi["auto_io"]["min"].IsScalar())
                  ? psi["auto_io"]["min"].as<int>()
                  : 0;
-    cpu_time_window = psi && psi["auto_cpu"] && psi["auto_cpu"]["time_window"]
-                          ? psi["auto_cpu"]["time_window"].as<string>()
-                          : "avg60";
+    cpu_time_window =
+        (psi && psi["auto_cpu"] && psi["auto_cpu"]["time_window"] &&
+         psi["auto_cpu"]["time_window"].IsScalar())
+            ? psi["auto_cpu"]["time_window"].as<string>()
+            : "avg60";
+    mem_time_window =
+        (psi && psi["auto_memory"] && psi["auto_memory"]["time_window"] &&
+         psi["auto_memory"]["time_window"].IsScalar())
+            ? psi["auto_memory"]["time_window"].as<string>()
+            : "avg60";
+    io_time_window = (psi && psi["auto_io"] && psi["auto_io"]["time_window"] &&
+                      psi["auto_io"]["time_window"].IsScalar())
+                         ? psi["auto_io"]["time_window"].as<string>()
+                         : "avg60";
     mem_time_window =
         psi && psi["auto_memory"] && psi["auto_memory"]["time_window"]
             ? psi["auto_memory"]["time_window"].as<string>()
@@ -1154,7 +1176,12 @@ void dyn_swap_service() {
   bool DEACTIVATE_IN_SLEEP = config.deactivate_in_sleep;
   string THRESHOLD_TYPE = config.threshold_type;
 
-  YAML::Node configRoot = YAML::LoadFile(DEFAULT_CONFIG);
+  YAML::Node configRoot;
+  try {
+    configRoot = YAML::LoadFile(DEFAULT_CONFIG);
+  } catch (const std::exception &e) {
+    ALOGE("Failed to load config file: %s", e.what());
+  }
   DynamicSwappinessConfig dynConfig;
   dynConfig.load_from_yaml(configRoot);
   SwappinessManager swappinessManager(dynConfig);
