@@ -263,16 +263,13 @@ double read_pressure(const string &resource, const string &level,
 
           if (metric_key == key) {
             return stod(metric_value);
-            ALOG_RESET("invalid_key_pressure");
-          } else {
-            ALOGE_ONCE("invalid_key_pressure", "Invalid key: %s", key.c_str());
           }
         }
       }
-    } else {
-      ALOGE("Invalid level: %s", level.c_str());
     }
   }
+
+  ALOGE("Key: %s not found.", key.c_str());
   return nan("");
 }
 
@@ -717,8 +714,7 @@ void sleeper(int seconds, function<void()> on_complete = nullptr,
   }
 
   if (!interrupted && on_complete) {
-    log_manager.log(LogType::ALWAYS, LogPriority::DEBUG, "sleeper",
-                    "Sleep completed.");
+    ALOGD("Sleep completed.");
     on_complete();
   }
 
@@ -732,24 +728,21 @@ void start_swapoff_timer_if_idle(int wait_timeout) {
         wait_timeout,
         [] {
           is_swapoff_session = true;
-          log_manager.log(LogType::ONCE, LogPriority::INFO, "swapoff_session",
-                          "Swapoff session started...");
-          log_manager.reset("swapoff_timer");
+          ALOGI_ONCE("swapoff_session", "Swapoff session started...");
+          ALOG_RESET("swapoff_timer");
         },
         [] {
           if (!is_sleep_mode()) {
-            log_manager.log(LogType::ALWAYS, LogPriority::INFO, "",
-                            "Device woke before timeout, swapoff canceled.");
-            log_manager.reset("swapoff_timer");
-            log_manager.reset("swapoff_session");
+            ALOGI("Device woke before timeout, swapoff canceled.");
+            ALOG_RESET("swapoff_timer");
+            ALOG_RESET("swapoff_session");
             return true;
           }
           return false;
         });
   }).detach();
 
-  log_manager.log(LogType::ONCE, LogPriority::INFO, "swapoff timer",
-                  "Idle detected. Timer for swapoff initiated...");
+  ALOGI_ONCE("swapoff timer", "Idle detected. Timer for swapoff initiated...");
 }
 
 struct Config {
@@ -955,8 +948,8 @@ bool psi_available() {
   if (cpu_file.good() && mem_file.good() && io_file.good()) {
     return true;
   } else {
-    log_manager.log(LogType::ONCE, LogPriority::WARNING, "psi_unavailable",
-                    "PSI metrics unavailable. Falling back to mem_pressure.");
+    ALOGW_ONCE("psi_unavailable",
+               "PSI metrics unavailable. Falling back to mem_pressure.");
     return false;
   }
 }
@@ -1135,18 +1128,18 @@ class SwappinessManager {
                  "MEM=%.2f, IO=%.2f",
                  tag.c_str(), swappiness, cpu, mem, io);
     } else {
-      log_manager.reset(tag);
+      ALOG_RESET(tag);
     }
   }
 
   void reset_threshold_logs() {
-    log_manager.reset("cpu_threshold");
-    log_manager.reset("mem_threshold");
-    log_manager.reset("io_threshold");
-    log_manager.reset("cpu_pressure");
-    log_manager.reset("mem_pressure");
-    log_manager.reset("io_pressure");
-    log_manager.reset("swappiness_eval");
+    ALOG_RESET("cpu_threshold");
+    ALOG_RESET("mem_threshold");
+    ALOG_RESET("io_threshold");
+    ALOG_RESET("cpu_pressure");
+    ALOG_RESET("mem_pressure");
+    ALOG_RESET("io_pressure");
+    ALOG_RESET("swappiness_eval");
   }
 
   static int get_swappiness_from_pressure(const vector<pair<int, int>> &table,
@@ -1225,8 +1218,8 @@ void dyn_swap_service() {
         start_swapoff_timer_if_idle(wait_timeout);
         if (!is_sleep_mode()) {
           is_swapoff_session = false;
-          log_manager.reset("swapoff_session");
-          log_manager.reset("swapoff_timer");
+          ALOG_RESET("swapoff_session");
+          ALOG_RESET("swapoff_timer");
         }
       }
 
@@ -1316,11 +1309,10 @@ void dyn_swap_service() {
                   swapoff_(swap, swapoff_thread, "Reason: low swap usage.");
                 }
               }
-              log_manager.reset("swapoff_end");
+              ALOG_RESET("swapoff_end");
             } catch (const out_of_range &e) {
-              log_manager.log(LogType::ONCE, LogPriority::WARNING,
-                              "swapoff_end", "No second last swap.");
-              log_manager.reset("condition met");
+              ALOGW_ONCE("swapoff_end", "No second last swap.");
+              ALOG_RESET("condition met");
             }
           }
         }

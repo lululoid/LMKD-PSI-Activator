@@ -82,6 +82,18 @@ should_rebuild_dynv() {
 	return 0 # Rebuild needed
 }
 
+is_zip_changed() {
+	package=$1
+	new_hash=$(sha256sum "$package")
+	old_hash=$(cat .old_package_hash 2>/dev/null)
+
+	if [ "$new_hash" != "$old_hash" ]; then
+		echo "$new_hash" >.old_package_hash
+	else 
+		return 1
+	fi
+}
+
 # Generate Changelog from Git and remove old ones
 generate_changelog() {
 	local version="$1"
@@ -233,7 +245,7 @@ main() {
 	fi
 	
 	if [ ! -f "$package_name" ] || [ "$PUSH_TO_PHONE" == "true" ]; then 
-		adb push "$package_name" /sdcard/Download
+		is_zip_changed "$package_name" && adb push "$package_name" /sdcard/Download
 	fi
 }
 
