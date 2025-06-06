@@ -27,14 +27,6 @@
 #include <utility>
 #include <vector>
 
-enum class LogType { ONCE, ALWAYS, QUIET };
-enum LogPriority {
-  DEBUG = ANDROID_LOG_DEBUG,
-  INFO = ANDROID_LOG_INFO,
-  WARN = ANDROID_LOG_WARN,
-  ERROR = ANDROID_LOG_ERROR
-};
-
 #define SWAP_PROC_FILE "/proc/swaps"
 #define ZRAM_DIR "/dev/block"
 #define SWAP_DIR "/data/adb"
@@ -42,12 +34,6 @@ enum LogPriority {
 using namespace std;
 using namespace chrono;
 namespace fs = filesystem;
-
-#define LOG_TAG "fmiop"
-#define ALOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
-#define ALOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
-#define ALOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
-#define ALOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 
 extern void save_pid(const string &filename, pid_t pid);
 extern void dyn_swap_service();
@@ -62,8 +48,17 @@ pair<vector<string>, vector<string>> available_swaps;
 const string fmiop_dir = "/sdcard/Android/fmiop";
 const string NVBASE = "/data/adb";
 const string LOG_FOLDER = NVBASE + "/fmiop";
-const string PID_DB = LOG_FOLDER + "/fmiop" + ".pids";
-const string SWAP_FILE = "fmiop_swap.";
+const string PIDS_DB = LOG_FOLDER + "/fmiop" + ".pids";
+const string SWAP_FILE_PREFIX = "fmiop_swap.";
+const string DEFAULT_CONFIG = "/data/adb/fmiop/config.yaml";
+
+enum class LogType { ALWAYS, QUITE, ONCE };
+enum class LogPriority {
+  DEBUG = ANDROID_LOG_DEBUG,
+  INFO = ANDROID_LOG_INFO,
+  WARNING = ANDROID_LOG_WARN,
+  ERROR = ANDROID_LOG_ERROR
+};
 
 /**
  * Converts any type to string using stringstream.
@@ -73,53 +68,6 @@ string to_string_generic(const T &val) {
   ostringstream oss;
   oss << boolalpha << val;  // handle bool as "true"/"false"
   return oss.str();
-}
-
-string &get_config_file() {
-  static string path = "/data/adb/fmiop/config.yaml";
-  return path;
-}
-
-/**
- * Reads a value from a YAML config file with a default fallback.
- */
-template <typename T>
-T read_config(const string &key_path, T default_value) {
-  try {
-    YAML::Node node = YAML::LoadFile(get_config_file());
-    size_t pos = 0, found;
-    string clean_key_path =
-        (key_path[0] == '.') ? key_path.substr(1) : key_path;
-
-    while ((found = clean_key_path.find('.', pos)) != string::npos) {
-      string key = clean_key_path.substr(pos, found - pos);
-      node = node[key];
-
-      if (!node) {
-        ALOGW("Config key not found: %s. Using default: %s", key_path.c_str(),
-              to_string_generic(default_value).c_str());
-        return default_value;
-      }
-      pos = found + 1;
-    }
-
-    string finalKey = clean_key_path.substr(pos);
-    node = node[finalKey];
-
-    if (!node) {
-      ALOGW("Config key not found: %s. Using default: %s", key_path.c_str(),
-            to_string_generic(default_value).c_str());
-      return default_value;
-    }
-
-    T value = node.as<T>();
-    ALOGI("Config [%s] = %s", key_path.c_str(),
-          to_string_generic(value).c_str());
-    return value;
-  } catch (const exception &e) {
-    ALOGE("Error reading config: %s", e.what());
-    return default_value;
-  }
 }
 
 class LogManager {
@@ -173,6 +121,73 @@ class LogManager {
 
 static LogManager log_manager;
 
+#define LOG_TAG "fmiop"
+#define ALOGD(format, ...) \
+    log_manager.log(LogType::ALWAYS, LogPriority::DEBUG, "", format, ##__VA_ARGS__)
+
+#define ALOGI(format, ...) \
+    log_manager.log(LogType::ALWAYS, LogPriority::INFO, "", format, ##__VA_ARGS__)
+
+#define ALOGW(format, ...) \
+    log_manager.log(LogType::ALWAYS, LogPriority::WARNING, "", format, ##__VA_ARGS__)
+
+#define ALOGE(format, ...) \
+    log_manager.log(LogType::ALWAYS, LogPriority::ERROR, "", format, ##__VA_ARGS__)
+
+#define ALOGD_ONCE(key, format, ...) \
+    log_manager.log(LogType::ONCE, LogPriority::DEBUG, key, format, ##__VA_ARGS__)
+
+#define ALOGI_ONCE(key, format, ...) \
+    log_manager.log(LogType::ONCE, LogPriority::INFO, key, format, ##__VA_ARGS__)
+
+#define ALOGW_ONCE(key, format, ...) \
+    log_manager.log(LogType::ONCE, LogPriority::WARNING, key, format, ##__VA_ARGS__)
+
+#define ALOGE_ONCE(key, format, ...) \
+    log_manager.log(LogType::ONCE, LogPriority::ERROR, key, format, ##__VA_ARGS__)
+
+/**
+ * Reads a value from a YAML config file with a default fallback.
+ */
+template <typename T>
+T read_config(const string &key_path, T default_value) {
+  try {
+    YAML::Node node = YAML::LoadFile(DEFAULT_CONFIG);
+    size_t pos = 0, found;
+    string clean_key_path =
+        (key_path[0] == '.') ? key_path.substr(1) : key_path;
+
+    while ((found = clean_key_path.find('.', pos)) != string::npos) {
+      string key = clean_key_path.substr(pos, found - pos);
+      node = node[key];
+
+      if (!node) {
+        ALOGW("Config key not found: %s. Using default: %s", key_path.c_str(),
+              to_string_generic(default_value).c_str());
+        return default_value;
+      }
+      pos = found + 1;
+    }
+
+    string finalKey = clean_key_path.substr(pos);
+    node = node[finalKey];
+
+    if (!node) {
+      ALOGW("Config key not found: %s. Using default: %s", key_path.c_str(),
+            to_string_generic(default_value).c_str());
+      return default_value;
+    }
+
+    T value = node.as<T>();
+    ALOGI("Config [%s] = %s", key_path.c_str(),
+          to_string_generic(value).c_str());
+    return value;
+  } catch (const exception &e) {
+    ALOGE("Error reading config: %s", e.what());
+    return default_value;
+  }
+}
+
 vector<pair<int, int>> parse_pressure_pairs(const YAML::Node &node) {
   vector<pair<int, int>> result;
   if (!node || !node.IsSequence()) return result;
@@ -207,7 +222,7 @@ void write_swappiness(int value) {
   if (!file) {
     ALOGE(
         "Error: Unable to write to /proc/sys/vm/swappiness. Check "
-        "permissions.");
+        "permission.");
     return;
   }
   file << value;
@@ -242,9 +257,13 @@ double read_pressure(const string &resource, const string &level,
 
           if (metric_key == key) {
             return stod(metric_value);
+          } else {
+            ALOGE("Invalid key: %s", key.c_str());
           }
         }
       }
+    } else {
+      ALOGE("Invalid level: %s", level.c_str());
     }
   }
   return nan("");
@@ -256,7 +275,7 @@ double read_pressure(const string &resource, const string &level,
 void signal_handler(int signal) {
   ALOGI("Received signal %d, exiting...", signal);
   running = false;
-  exit(signal);
+  _Exit(signal);
 }
 
 /**
@@ -272,7 +291,7 @@ void save_pid(const string &pid_name, int pid_value) {
   bool found = false;
 
   // Open the PID_DB file for reading.
-  ifstream infile(PID_DB);
+  ifstream infile(PIDS_DB);
   if (infile) {
     while (getline(infile, line)) {
       // Check if the line starts with "pid_name="
@@ -289,9 +308,9 @@ void save_pid(const string &pid_name, int pid_value) {
   lines.push_back(pid_name + "=" + to_string(pid_value));
 
   // Open PID_DB for writing (this overwrites the file).
-  ofstream outfile(PID_DB);
+  ofstream outfile(PIDS_DB);
   if (!outfile) {
-    ALOGE("Error: Unable to open %s for writing.", PID_DB.c_str());
+    ALOGE("Error: Unable to open %s for writing.", PIDS_DB.c_str());
     return;
   }
 
@@ -876,7 +895,7 @@ bool psi_available() {
   if (cpu_file.good() && mem_file.good() && io_file.good()) {
     return true;
   } else {
-    log_manager.log(LogType::ONCE, LogPriority::WARN, "psi_unavailable",
+    log_manager.log(LogType::ONCE, LogPriority::WARNING, "psi_unavailable",
                     "PSI metrics unavailable. Falling back to mem_pressure.");
     return false;
   }
@@ -1097,7 +1116,7 @@ void dyn_swap_service() {
   bool DEACTIVATE_IN_SLEEP = config.deactivate_in_sleep;
   string THRESHOLD_TYPE = config.threshold_type;
 
-  YAML::Node configRoot = YAML::LoadFile(get_config_file());
+  YAML::Node configRoot = YAML::LoadFile(DEFAULT_CONFIG);
   DynamicSwappinessConfig dynConfig;
   dynConfig.load_from_yaml(configRoot);
   SwappinessManager swappinessManager(dynConfig);
@@ -1173,11 +1192,11 @@ void dyn_swap_service() {
           last_active_swap = active_swaps.back();
           lst_swap_usage = get_swap_usage(last_active_swap);
           activation_threshold =
-              (last_active_swap.find(SWAP_FILE) != string::npos)
+              (last_active_swap.find(SWAP_FILE_PREFIX) != string::npos)
                   ? SWAP_ACTIVATION_THRESHOLD
                   : ZRAM_ACTIVATION_THRESHOLD;
           deactivation_threshold =
-              (last_active_swap.find(SWAP_FILE) != string::npos)
+              (last_active_swap.find(SWAP_FILE_PREFIX) != string::npos)
                   ? SWAP_DEACTIVATION_THRESHOLD
                   : ZRAM_DEACTIVATION_THRESHOLD;
           low_usage_swaps = get_lusg_swaps();
@@ -1209,7 +1228,7 @@ void dyn_swap_service() {
             try {
               scnd_lst_swap = active_swaps.at(active_swaps.size() - 2);
               lst_scnd_act_threshold =
-                  (scnd_lst_swap.find(SWAP_FILE) != string::npos)
+                  (scnd_lst_swap.find(SWAP_FILE_PREFIX) != string::npos)
                       ? SWAP_ACTIVATION_THRESHOLD
                       : ZRAM_ACTIVATION_THRESHOLD;
               sc_prev_swap_usg = get_swap_usage(scnd_lst_swap);
@@ -1225,7 +1244,7 @@ void dyn_swap_service() {
               // If one of condition is met turn off SWAP
               if (is_condition_met) {
                 log_manager.log(
-                    LogType::ONCE, LogPriority::WARN, "condition met",
+                    LogType::ONCE, LogPriority::WARNING, "condition met",
                     "sleep more than %d minutes. Deactivating swap...",
                     SWAP_DEACTIVATION_TIME);
                 swapoff_(last_active_swap, swapoff_thread);
@@ -1236,7 +1255,7 @@ void dyn_swap_service() {
               }
               log_manager.reset("swapoff_end");
             } catch (const out_of_range &e) {
-              log_manager.log(LogType::ONCE, LogPriority::WARN, "swapoff_end",
+              log_manager.log(LogType::ONCE, LogPriority::WARNING, "swapoff_end",
                               "No second last swap.");
               log_manager.reset("condition met");
             }
