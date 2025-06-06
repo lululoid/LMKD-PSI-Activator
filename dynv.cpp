@@ -52,13 +52,14 @@ const string PIDS_DB = LOG_FOLDER + "/fmiop" + ".pids";
 const string SWAP_FILE_PREFIX = "fmiop_swap.";
 const string DEFAULT_CONFIG = "/data/adb/fmiop/config.yaml";
 
-enum class LogType { ALWAYS, QUITE, ONCE };
+enum class LogType { ALWAYS, QUIET, ONCE };
 enum class LogPriority {
   DEBUG = ANDROID_LOG_DEBUG,
   INFO = ANDROID_LOG_INFO,
   WARNING = ANDROID_LOG_WARN,
   ERROR = ANDROID_LOG_ERROR
 };
+#define LOG_TAG "fmiop"
 
 /**
  * Converts any type to string using stringstream.
@@ -121,30 +122,35 @@ class LogManager {
 
 static LogManager log_manager;
 
-#define LOG_TAG "fmiop"
-#define ALOGD(format, ...) \
-    log_manager.log(LogType::ALWAYS, LogPriority::DEBUG, "", format, ##__VA_ARGS__)
+#define ALOGD(format, ...)                                         \
+  log_manager.log(LogType::ALWAYS, LogPriority::DEBUG, "", format, \
+                  ##__VA_ARGS__)
 
 #define ALOGI(format, ...) \
-    log_manager.log(LogType::ALWAYS, LogPriority::INFO, "", format, ##__VA_ARGS__)
+  log_manager.log(LogType::ALWAYS, LogPriority::INFO, "", format, ##__VA_ARGS__)
 
-#define ALOGW(format, ...) \
-    log_manager.log(LogType::ALWAYS, LogPriority::WARNING, "", format, ##__VA_ARGS__)
+#define ALOGW(format, ...)                                           \
+  log_manager.log(LogType::ALWAYS, LogPriority::WARNING, "", format, \
+                  ##__VA_ARGS__)
 
-#define ALOGE(format, ...) \
-    log_manager.log(LogType::ALWAYS, LogPriority::ERROR, "", format, ##__VA_ARGS__)
+#define ALOGE(format, ...)                                         \
+  log_manager.log(LogType::ALWAYS, LogPriority::ERROR, "", format, \
+                  ##__VA_ARGS__)
 
 #define ALOGD_ONCE(key, format, ...) \
-    log_manager.log(LogType::ONCE, LogPriority::DEBUG, key, format, ##__VA_ARGS__)
+  log_manager.log(LogType::ONCE, LogPriority::DEBUG, key, format, ##__VA_ARGS__)
 
 #define ALOGI_ONCE(key, format, ...) \
-    log_manager.log(LogType::ONCE, LogPriority::INFO, key, format, ##__VA_ARGS__)
+  log_manager.log(LogType::ONCE, LogPriority::INFO, key, format, ##__VA_ARGS__)
 
-#define ALOGW_ONCE(key, format, ...) \
-    log_manager.log(LogType::ONCE, LogPriority::WARNING, key, format, ##__VA_ARGS__)
+#define ALOGW_ONCE(key, format, ...)                                \
+  log_manager.log(LogType::ONCE, LogPriority::WARNING, key, format, \
+                  ##__VA_ARGS__)
 
 #define ALOGE_ONCE(key, format, ...) \
-    log_manager.log(LogType::ONCE, LogPriority::ERROR, key, format, ##__VA_ARGS__)
+  log_manager.log(LogType::ONCE, LogPriority::ERROR, key, format, ##__VA_ARGS__)
+
+#define ALOG_RESET(key) log_manager.reset(key)
 
 /**
  * Reads a value from a YAML config file with a default fallback.
@@ -257,8 +263,9 @@ double read_pressure(const string &resource, const string &level,
 
           if (metric_key == key) {
             return stod(metric_value);
+            ALOG_RESET("invalid_key_pressure");
           } else {
-            ALOGE("Invalid key: %s", key.c_str());
+            ALOGE_ONCE("invalid_key_pressure", "Invalid key: %s", key.c_str());
           }
         }
       }
@@ -819,8 +826,12 @@ struct DynamicSwappinessConfig {
   }
 
   void load_from_yaml(const YAML::Node &config) {
+    ALOGD("Loading DynamicSwappinessConfig from YAML...");
     auto dyn = config["dynamic_swappiness"];
-    if (!dyn) return;
+    if (!dyn) {
+      ALOGW("dynamic_swappiness section not found in config.");
+      return;
+    }
 
     threshold_type =
         dyn["threshold_type"] ? dyn["threshold_type"].as<string>() : "psi";
@@ -830,6 +841,10 @@ struct DynamicSwappinessConfig {
     max_swappiness = dyn["swappiness_range"]["max"]
                          ? dyn["swappiness_range"]["max"].as<int>()
                          : _config.swappiness_max;
+
+    ALOGD("threshold_type: %s", threshold_type.c_str());
+    ALOGD("min_swappiness: %d, max_swappiness: %d", min_swappiness,
+          max_swappiness);
 
     auto psi = dyn["threshold_psi"];
     if (psi) {
@@ -850,40 +865,63 @@ struct DynamicSwappinessConfig {
               : vector<pair<int, int>>{
                     {10, 140}, {15, 100}, {20, 80}, {25, 100}};
 
-      log_manager.log(LogType::ALWAYS, LogPriority::DEBUG,
-                      "cpu_pressure_mapping", "CPU Pressure Mapping: %s",
-                      pressure_to_string(pressure_mapping.cpu).c_str());
-      log_manager.log(LogType::ALWAYS, LogPriority::DEBUG,
-                      "memory_pressure_mapping", "Memory Pressure Mapping: %s",
-                      pressure_to_string(pressure_mapping.memory).c_str());
-      log_manager.log(LogType::ALWAYS, LogPriority::DEBUG,
-                      "io_pressure_mapping", "IO Pressure Mapping: %s",
-                      pressure_to_string(pressure_mapping.io).c_str());
+      ALOGD("CPU Pressure Mapping: %s",
+            pressure_to_string(pressure_mapping.cpu).c_str());
+      ALOGD("Memory Pressure Mapping: %s",
+            pressure_to_string(pressure_mapping.memory).c_str());
+      ALOGD("IO Pressure Mapping: %s",
+            pressure_to_string(pressure_mapping.io).c_str());
+    } else {
+      ALOGW("threshold_psi section not found in config.");
     }
 
     auto mem = dyn["threshold_mem_pressure"];
     if (mem) {
       pressure_mapping.mem_pressure = parse_pressure_pairs(mem);
+      ALOGD("Mem Pressure Mapping: %s",
+            pressure_to_string(pressure_mapping.mem_pressure).c_str());
+    } else {
+      ALOGW("threshold_mem_pressure section not found in config.");
     }
-    mode = psi["mode"].as<string>();
-    levels = psi["levels"] ? psi["levels"].as<int>() : 10;
-    cpu_max = psi["auto_cpu"]["max"] ? psi["auto_cpu"]["max"].as<int>() : 80;
-    cpu_min = psi["auto_cpu"]["min"] ? psi["auto_cpu"]["min"].as<int>() : 0;
-    mem_max =
-        psi["auto_memory"]["max"] ? psi["auto_memory"]["max"].as<int>() : 20;
-    mem_min =
-        psi["auto_memory"]["min"] ? psi["auto_memory"]["min"].as<int>() : 0;
-    io_max = psi["auto_io"]["max"] ? psi["auto_io"]["max"].as<int>() : 25;
-    io_min = psi["auto_io"]["min"] ? psi["auto_io"]["min"].as<int>() : 0;
-    cpu_time_window = psi["auto_cpu"]["time_window"]
+    mode = psi && psi["mode"] ? psi["mode"].as<string>() : "auto";
+    levels = psi && psi["levels"] ? psi["levels"].as<int>() : 10;
+    cpu_max = psi && psi["auto_cpu"] && psi["auto_cpu"]["max"]
+                  ? psi["auto_cpu"]["max"].as<int>()
+                  : 80;
+    cpu_min = psi && psi["auto_cpu"] && psi["auto_cpu"]["min"]
+                  ? psi["auto_cpu"]["min"].as<int>()
+                  : 0;
+    mem_max = psi && psi["auto_memory"] && psi["auto_memory"]["max"]
+                  ? psi["auto_memory"]["max"].as<int>()
+                  : 20;
+    mem_min = psi && psi["auto_memory"] && psi["auto_memory"]["min"]
+                  ? psi["auto_memory"]["min"].as<int>()
+                  : 0;
+    io_max = psi && psi["auto_io"] && psi["auto_io"]["max"]
+                 ? psi["auto_io"]["max"].as<int>()
+                 : 25;
+    io_min = psi && psi["auto_io"] && psi["auto_io"]["min"]
+                 ? psi["auto_io"]["min"].as<int>()
+                 : 0;
+    cpu_time_window = psi && psi["auto_cpu"] && psi["auto_cpu"]["time_window"]
                           ? psi["auto_cpu"]["time_window"].as<string>()
                           : "avg60";
-    mem_time_window = psi["auto_memory"]["time_window"]
-                          ? psi["auto_memory"]["time_window"].as<string>()
-                          : "avg60";
-    io_time_window = psi["auto_io"]["time_window"]
+    mem_time_window =
+        psi && psi["auto_memory"] && psi["auto_memory"]["time_window"]
+            ? psi["auto_memory"]["time_window"].as<string>()
+            : "avg60";
+    io_time_window = psi && psi["auto_io"] && psi["auto_io"]["time_window"]
                          ? psi["auto_io"]["time_window"].as<string>()
                          : "avg60";
+
+    ALOGD("mode: %s, levels: %d", mode.c_str(), levels);
+    ALOGD(
+        "cpu_max: %d, cpu_min: %d, mem_max: %d, mem_min: %d, io_max: %d, "
+        "io_min: %d",
+        cpu_max, cpu_min, mem_max, mem_min, io_max, io_min);
+    ALOGD("cpu_time_window: %s, mem_time_window: %s, io_time_window: %s",
+          cpu_time_window.c_str(), mem_time_window.c_str(),
+          io_time_window.c_str());
   }
 };
 
@@ -1003,12 +1041,12 @@ class SwappinessManager {
         oss << swappiness_steps[i] << " ";
     }
 
-    log_manager.log(LogType::ONCE, LogPriority::INFO, log_id,
-                    "[%s] PSI: %.2f normalized to %.4f (reversed: %.4f). "
-                    "Using level %d → swappiness %d from steps [%s]",
-                    log_id.c_str(), pressure, norm, reversed, index,
-                    swappiness_steps[index],
-                    join_vector(swappiness_steps, index).c_str());
+    ALOGI_ONCE(log_id,
+               "[%s] PSI: %.2f normalized to %.4f (reversed: %.4f). "
+               "Using level %d → swappiness %d from steps [%s]",
+               log_id.c_str(), pressure, norm, reversed, index,
+               swappiness_steps[index],
+               join_vector(swappiness_steps, index).c_str());
     // Step 6: Return selected swappiness
     return swappiness_steps[index];
   }
@@ -1035,8 +1073,8 @@ class SwappinessManager {
 
       int swappiness = min({pressures[0], pressures[1], pressures[2]});
       log_if_threshold("sparsed_swappiness", swappiness, cpu, mem, io);
-      log_manager.log(
-          LogType::ONCE, LogPriority::INFO, "swappiness_eval",
+      ALOGI_ONCE(
+          "swappiness_eval",
           "[AUTO MODE] CPU(%s): %.2f → %d, MEM(%s): %.2f → %d, IO(%s): %.2f → "
           "%d → FINAL: %d",
           config.cpu_time_window.c_str(), cpu, pressures[0],
@@ -1070,10 +1108,10 @@ class SwappinessManager {
   void log_if_threshold(const string &tag, int swappiness, double cpu,
                         double mem, double io) {
     if (swappiness != -1) {
-      log_manager.log(
-          LogType::ONCE, LogPriority::INFO, tag,
-          "Threshold %s reached. Pressure: cpu: %.2f, mem: %.2f, io: %.2f",
-          tag.c_str(), cpu, mem, io);
+      ALOGI_ONCE(tag,
+                 "[THRESHOLD] [%s] Swappiness: %d | Pressures: CPU=%.2f, "
+                 "MEM=%.2f, IO=%.2f",
+                 tag.c_str(), swappiness, cpu, mem, io);
     } else {
       log_manager.reset(tag);
     }
@@ -1153,8 +1191,7 @@ void dyn_swap_service() {
         new_swappiness = swappinessManager.get_swappiness();
         swappinessManager.apply_swappiness(new_swappiness);
       } else {
-        log_manager.log(LogType::ONCE, LogPriority::INFO, "dynv disabled",
-                        "Dynamic Swappiness is disabled.");
+        ALOGI_ONCE("dynv disabled", "Dynamic Swappiness is disabled.");
       }
 
       if (DEACTIVATE_IN_SLEEP) {
@@ -1243,10 +1280,9 @@ void dyn_swap_service() {
 
               // If one of condition is met turn off SWAP
               if (is_condition_met) {
-                log_manager.log(
-                    LogType::ONCE, LogPriority::WARNING, "condition met",
-                    "sleep more than %d minutes. Deactivating swap...",
-                    SWAP_DEACTIVATION_TIME);
+                ALOGW("condition met",
+                      "sleep more than %d minutes. Deactivating swap...",
+                      SWAP_DEACTIVATION_TIME);
                 swapoff_(last_active_swap, swapoff_thread);
               } else if (kill_low_swap) {
                 for (auto swap : low_usage_swaps) {
@@ -1255,8 +1291,8 @@ void dyn_swap_service() {
               }
               log_manager.reset("swapoff_end");
             } catch (const out_of_range &e) {
-              log_manager.log(LogType::ONCE, LogPriority::WARNING, "swapoff_end",
-                              "No second last swap.");
+              log_manager.log(LogType::ONCE, LogPriority::WARNING,
+                              "swapoff_end", "No second last swap.");
               log_manager.reset("condition met");
             }
           }
